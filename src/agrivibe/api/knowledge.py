@@ -2,7 +2,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile
 
-from agrivibe.core.vectorstore import Category
+from agrivibe.db.vectorstore import Category
 from agrivibe.dependencies import get_knowledge_service
 from agrivibe.schemas import IndexResponse, SearchRequest, SearchResponse
 from agrivibe.services.knowledge import KnowledgeService

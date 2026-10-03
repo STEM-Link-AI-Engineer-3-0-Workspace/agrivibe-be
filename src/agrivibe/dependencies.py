@@ -11,7 +11,7 @@ from langchain_pinecone import PineconeVectorStore
 from agrivibe.agents.rag import build_rag_agent
 from agrivibe.config import Settings
 from agrivibe.core.llm import create_chat_model
-from agrivibe.core.vectorstore import create_vector_store
+from agrivibe.db.vectorstore import create_vector_store
 from agrivibe.services.answering import AnswerService
 from agrivibe.services.knowledge import KnowledgeService
 

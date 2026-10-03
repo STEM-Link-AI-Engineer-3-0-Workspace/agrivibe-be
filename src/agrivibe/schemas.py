@@ -2,7 +2,7 @@
 
 from pydantic import BaseModel, Field
 
-from agrivibe.core.vectorstore import Category
+from agrivibe.db.vectorstore import Category
 
 
 class IndexResponse(BaseModel):
