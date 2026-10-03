@@ -86,6 +86,19 @@ curl -X POST localhost:8000/search -H "Content-Type: application/json" -d '{"que
 
 On Windows, type `curl.exe` instead of `curl`, or use the `/docs` page.
 
-<!-- step-04 -->
+### Step 04 · The RAG agent
+
+`src/agrivibe/agents/rag/` is the agent layer. It has no idea HTTP exists.
+
+- `tools.py`: `search_knowledge` is the retriever wrapped as a tool. Its docstring is the
+  prompt that tells the model when to filter by category. It returns two things
+  (`response_format="content_and_artifact"`): text for the model to read, and the raw
+  documents, which ride along on the `ToolMessage` so the code can check citations later.
+- `schemas.py`: `CitedAnswer` is a list of `CitedSentence` (sentence plus citation) and a
+  `found` flag for questions the documents do not cover.
+- `prompts.py`: search first, answer only from passages, cite every sentence, say so when
+  nothing covers the question.
+- `agent.py`: `create_agent(..., response_format=CitedAnswer)` joins them.
+
 <!-- step-05 -->
 <!-- step-06 -->
