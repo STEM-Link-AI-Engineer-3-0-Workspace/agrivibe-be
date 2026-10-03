@@ -2,8 +2,8 @@
 
 The knowledge service behind AgriVibe. You upload PDFs (cultivation guides, government
 circulars, farm records) and FieldOracle splits them, embeds them and stores them in
-Pinecone. You ask a question and a RAG agent searches that store and answers in
-sentence and citation pairs, so every sentence traces back to a passage in a PDF.
+Pinecone. You ask a question and a RAG agent searches that store and answers with a
+citation after every sentence, so every sentence traces back to passages in a PDF.
 
 It is a FastAPI app built in Level 4 Lesson 2 of the STEMLink AI Engineer Bootcamp. The
 code is kept small on purpose, but the layout is the one you would use at work, and it is
@@ -93,19 +93,20 @@ On Windows, type `curl.exe` instead of `curl`, or use the `/docs` page.
 - `tools.py`: `search_knowledge` is the retriever wrapped as a tool. Its docstring is the
   prompt that tells the model when to filter by category. It returns two things
   (`response_format="content_and_artifact"`): text for the model to read, and the raw
-  documents, which ride along on the `ToolMessage` so the code can check citations later.
-- `schemas.py`: `CitedAnswer` is a list of `CitedSentence` (sentence plus citation) and a
-  `found` flag for questions the documents do not cover.
-- `prompts.py`: search first, answer only from passages, cite every sentence, say so when
-  nothing covers the question.
+  documents, which ride along on the `ToolMessage` so the code can return the cited
+  passages later.
+- `schemas.py`: `CitedAnswer` is a list of `CitedSentence` (a sentence plus the ids of the
+  passages that support it) and a `found` flag for questions the documents do not cover.
+- `prompts.py`: search first, answer only from passages, cite every passage each sentence
+  uses (one sentence can combine several), say so when nothing covers the question.
 - `agent.py`: `create_agent(..., response_format=CitedAnswer)` joins them.
 
 ### Step 05 · The ask endpoint
 
 `POST /ask` calls `AnswerService.ask`, which invokes the agent and builds the response.
-Before it answers, it runs a grounding check. Every citation is compared with the chunks the
-search tool actually returned in this run, and a citation to a passage that was never
-retrieved is marked `verified: false`.
+`answer` is the sentences joined, each followed by the ids of the passages it cites:
+`Sentence [id-1, id-2]`. `sentences` has the same content as a list, and `sources` holds
+the full text of every cited passage, taken from what the search tool returned.
 
 ```bash
 curl -X POST localhost:8000/ask -H "Content-Type: application/json" \
@@ -118,9 +119,9 @@ Your output will differ in wording. The shape is fixed:
 {
   "question": "...",
   "found": true,
-  "answer": "The field was sown with Bg 300 on 2 October 2026. ...",
+  "answer": "The field was sown with Bg 300 on 2 October 2026. [minneriya-field-records-2026-41c1b4-0] ...",
   "sentences": [
-    {"sentence": "The field was sown with Bg 300 on 2 October 2026.", "citation": "minneriya-field-records-2026-41c1b4-0", "verified": true}
+    {"sentence": "The field was sown with Bg 300 on 2 October 2026.", "citations": ["minneriya-field-records-2026-41c1b4-0"]}
   ],
   "sources": [
     {"id": "minneriya-field-records-2026-41c1b4-0", "source": "minneriya_field_records_2026.pdf", "page": 1, "category": "farm_record", "text": "..."}
@@ -156,7 +157,7 @@ src/agrivibe/
 │   └── ask.py         POST /ask
 ├── services/          one class per use case
 │   ├── knowledge.py   read PDF, split, tag, upsert; search
-│   └── answering.py   invoke the agent, check citations, shape the response
+│   └── answering.py   invoke the agent, format the cited answer, collect sources
 ├── agents/            agent layer: knows nothing about HTTP
 │   └── rag/           the RAG agent: tool, prompt, output schema
 ├── core/              model clients shared by every layer
@@ -186,8 +187,8 @@ pasted into one agent's prompt. FieldOracle replaces that with retrieval:
 
 - Its Crop Knowledge agent calls `POST /ask` (or `POST /search`) instead of reading
   `KNOWLEDGE_BASE`.
-- `sentences` render as the answer, one citation chip per sentence. A sentence with
-  `verified: false` should look different.
+- `answer` can be shown as is. For citation chips, render `sentences` instead: one chip
+  per id in `citations`.
 - `sources` render as an evidence panel: file, page, passage.
 - `searches` render as live tool chips, the same way satellite and weather calls show today.
 - Add the frontend's URL to `CORS_ORIGINS` if the browser calls FieldOracle directly.

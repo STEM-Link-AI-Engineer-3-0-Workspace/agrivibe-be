@@ -50,7 +50,7 @@ def make_search_tool(vector_store: VectorStore, k: int) -> BaseTool:
         """
         docs = [doc for doc, _score in search_chunks(vector_store, query, k, category)]
         # The model reads the text. The documents ride along as the artifact,
-        # so the service can check every citation against what was retrieved.
+        # so the service can return the cited passages without searching again.
         return format_passages(docs), docs
 
     return search_knowledge
