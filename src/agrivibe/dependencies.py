@@ -7,6 +7,7 @@ functions with fakes through app.dependency_overrides.
 from functools import lru_cache
 
 from langchain_pinecone import PineconeVectorStore
+from langgraph.checkpoint.memory import InMemorySaver
 
 from agrivibe.agents.rag import build_rag_agent
 from agrivibe.config import Settings
@@ -39,5 +40,8 @@ def get_knowledge_service() -> KnowledgeService:
 def get_answer_service() -> AnswerService:
     """Returns the shared service that answers questions with the RAG agent."""
     settings = get_settings()
-    rag_agent = build_rag_agent(create_chat_model(settings), get_vector_store(), k=settings.search_k)
+    # Threads live in process memory: they reset when the app restarts and are not shared between workers.
+    rag_agent = build_rag_agent(
+        create_chat_model(settings), get_vector_store(), k=settings.search_k, checkpointer=InMemorySaver()
+    )
     return AnswerService(rag_agent)

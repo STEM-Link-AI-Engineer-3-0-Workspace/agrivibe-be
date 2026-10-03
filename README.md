@@ -108,9 +108,19 @@ On Windows, type `curl.exe` instead of `curl`, or use the `/docs` page.
 `Sentence [id-1, id-2]`. `sentences` has the same content as a list, and `sources` holds
 the full text of every cited passage, taken from what the search tool returned.
 
+The agent has a checkpointer (`InMemorySaver`), so a conversation can go on for several
+turns. Every response carries a `thread_id`. Send it back with the next question and the
+agent sees the earlier turns; leave it out and a new thread starts. `sources` and
+`searches` only cover the latest turn. Threads live in process memory, so they are lost
+when the app restarts.
+
 ```bash
 curl -X POST localhost:8000/ask -H "Content-Type: application/json" \
   -d '{"question": "When is the first top dressing due on the Minneriya field, and can the farmer still claim the subsidy?"}'
+
+# a follow-up in the same conversation
+curl -X POST localhost:8000/ask -H "Content-Type: application/json" \
+  -d '{"question": "Where does the farmer apply?", "thread_id": "<thread_id from the first answer>"}'
 ```
 
 Your output will differ in wording. The shape is fixed:
@@ -118,6 +128,7 @@ Your output will differ in wording. The shape is fixed:
 ```json
 {
   "question": "...",
+  "thread_id": "3f1c9a52-...",
   "found": true,
   "answer": "The field was sown with Bg 300 on 2 October 2026. [minneriya-field-records-2026-41c1b4-0] ...",
   "sentences": [
@@ -137,7 +148,7 @@ Your output will differ in wording. The shape is fixed:
 | GET | `/health` | | `{"status": "ok"}` |
 | POST | `/documents` | form: `file` (PDF), `category` | `IndexResponse` |
 | POST | `/search` | `{"query", "category"?, "k"?}` | `SearchResponse` |
-| POST | `/ask` | `{"question"}` | `AskResponse` |
+| POST | `/ask` | `{"question", "thread_id"?}` | `AskResponse` |
 
 The request and response models are in `src/agrivibe/models/`, one module per router. That
 package is the contract a frontend codes against.
@@ -189,6 +200,7 @@ pasted into one agent's prompt. FieldOracle replaces that with retrieval:
   `KNOWLEDGE_BASE`.
 - `answer` can be shown as is. For citation chips, render `sentences` instead: one chip
   per id in `citations`.
+- Keep `thread_id` per chat and send it with each follow-up.
 - `sources` render as an evidence panel: file, page, passage.
 - `searches` render as live tool chips, the same way satellite and weather calls show today.
 - Add the frontend's URL to `CORS_ORIGINS` if the browser calls FieldOracle directly.
