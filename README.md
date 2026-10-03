@@ -55,7 +55,13 @@ FastAPI app, allows the AgriVibe frontend's origin (CORS), and serves `GET /heal
 `src/agrivibe/dependencies.py` is where every shared object gets built. It holds one function so
 far.
 
-<!-- step-02 -->
+### Step 02 · The vector store
+
+`src/agrivibe/core/vectorstore.py` connects to Pinecone and creates the index on first run with
+1536 dimensions and the cosine metric, which match `text-embedding-3-small`. It also defines
+`Category`, the three document classes every chunk is tagged with, and `search_chunks`,
+the one search function the rest of the app uses.
+
 <!-- step-03 -->
 <!-- step-04 -->
 <!-- step-05 -->
