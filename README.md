@@ -62,7 +62,30 @@ far.
 `Category`, the three document classes every chunk is tagged with, and `search_chunks`,
 the one search function the rest of the app uses.
 
-<!-- step-03 -->
+### Step 03 · Indexing and search
+
+`POST /documents` takes a PDF and a category. `KnowledgeService.index_pdf` reads it page by
+page with pypdf, splits it with `RecursiveCharacterTextSplitter`, tags each chunk with
+its source, page, category and an id, then upserts it to Pinecone.
+
+The id is the file name plus a hash of the file's bytes, plus the chunk number, for example
+`paddy-cultivation-guide-a29d87-2`. Uploading the same PDF twice overwrites the same
+ids rather than adding duplicates.
+
+`POST /search` runs a plain vector search with no model involved, so you can see exactly
+what retrieval returns before an agent ever reads it.
+
+Try it with the three synthetic PDFs in `samples/`:
+
+```bash
+curl -X POST localhost:8000/documents -F "file=@samples/paddy_cultivation_guide.pdf" -F "category=cultivation_guide"
+curl -X POST localhost:8000/documents -F "file=@samples/fertiliser_subsidy_circular_2026.pdf" -F "category=policy"
+curl -X POST localhost:8000/documents -F "file=@samples/minneriya_field_records_2026.pdf" -F "category=farm_record"
+curl -X POST localhost:8000/search -H "Content-Type: application/json" -d '{"query": "subsidy claim deadline", "category": "policy"}'
+```
+
+On Windows, type `curl.exe` instead of `curl`, or use the `/docs` page.
+
 <!-- step-04 -->
 <!-- step-05 -->
 <!-- step-06 -->
