@@ -9,7 +9,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pypdf import PdfReader
 
 from agrivibe.db.vectorstore import Category, search_chunks
-from agrivibe.schemas import IndexResponse, SearchHit, SearchResponse
+from agrivibe.models.knowledge import IndexResponse, SearchHit, SearchResponse
 
 
 def make_doc_id(filename: str, data: bytes) -> str:

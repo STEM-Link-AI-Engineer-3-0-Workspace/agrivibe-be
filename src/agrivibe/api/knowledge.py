@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile
 
 from agrivibe.db.vectorstore import Category
 from agrivibe.dependencies import get_knowledge_service
-from agrivibe.schemas import IndexResponse, SearchRequest, SearchResponse
+from agrivibe.models.knowledge import IndexResponse, SearchRequest, SearchResponse
 from agrivibe.services.knowledge import KnowledgeService
 
 router = APIRouter(tags=["knowledge"])
