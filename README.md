@@ -57,7 +57,7 @@ far.
 
 ### Step 02 · The vector store
 
-`src/agrivibe/core/vectorstore.py` connects to Pinecone and creates the index on first run with
+`src/agrivibe/db/vectorstore.py` connects to Pinecone and creates the index on first run with
 1536 dimensions and the cosine metric, which match `text-embedding-3-small`. It also defines
 `Category`, the three document classes every chunk is tagged with, and `search_chunks`,
 the one search function the rest of the app uses.
@@ -157,12 +157,13 @@ src/agrivibe/
 │   └── answering.py   invoke the agent, check citations, shape the response
 ├── agents/            agent layer: knows nothing about HTTP
 │   └── rag/           the RAG agent: tool, prompt, output schema
-└── core/              clients shared by every layer
-    ├── llm.py         the chat model
+├── core/              model clients shared by every layer
+│   └── llm.py         the chat model
+└── db/                data access: where the indexed chunks live
     └── vectorstore.py Pinecone, the Category type, search_chunks
 ```
 
-Calls only go down: `api → services → agents → core`. A route never touches Pinecone and
+Calls only go down: `api → services → agents → core, db`. A route never touches Pinecone and
 an agent never sees a request.
 
 ### Step 06 · Tests without keys

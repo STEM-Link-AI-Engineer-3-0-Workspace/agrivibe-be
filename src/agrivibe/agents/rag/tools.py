@@ -2,7 +2,7 @@ from langchain.tools import BaseTool, tool
 from langchain_core.documents import Document
 from langchain_core.vectorstores import VectorStore
 
-from agrivibe.core.vectorstore import Category, search_chunks
+from agrivibe.db.vectorstore import Category, search_chunks
 
 
 def format_passages(docs: list[Document]) -> str:

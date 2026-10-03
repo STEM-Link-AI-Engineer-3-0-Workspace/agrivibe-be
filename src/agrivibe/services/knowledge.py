@@ -8,7 +8,7 @@ from langchain_core.vectorstores import VectorStore
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pypdf import PdfReader
 
-from agrivibe.core.vectorstore import Category, search_chunks
+from agrivibe.db.vectorstore import Category, search_chunks
 from agrivibe.schemas import IndexResponse, SearchHit, SearchResponse
 
 
