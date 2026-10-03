@@ -1,0 +1,23 @@
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from agrivibe.dependencies import get_settings
+
+app = FastAPI(
+    title="FieldOracle",
+    description="The AgriVibe knowledge service: index PDFs, then ask a RAG agent for cited answers.",
+    version="0.1.0",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=get_settings().cors_origins,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.get("/health", tags=["system"])
+def health() -> dict[str, str]:
+    """Reports that the service is up."""
+    return {"status": "ok"}

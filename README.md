@@ -47,7 +47,14 @@ Open <http://127.0.0.1:8000/docs>. Every endpoint can be tried from that page.
 
 Each step is one branch and one pull request, merged in class.
 
-<!-- step-01 -->
+### Step 01 · The app skeleton
+
+`src/agrivibe/config.py` reads every setting from `.env` with pydantic-settings. The two API keys
+have no default, so the app refuses to start without them. `src/agrivibe/main.py` creates the
+FastAPI app, allows the AgriVibe frontend's origin (CORS), and serves `GET /health`.
+`src/agrivibe/dependencies.py` is where every shared object gets built. It holds one function so
+far.
+
 <!-- step-02 -->
 <!-- step-03 -->
 <!-- step-04 -->
