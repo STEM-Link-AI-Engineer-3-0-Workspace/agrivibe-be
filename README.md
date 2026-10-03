@@ -165,4 +165,49 @@ src/agrivibe/
 Calls only go down: `api → services → agents → core`. A route never touches Pinecone and
 an agent never sees a request.
 
-<!-- step-06 -->
+### Step 06 · Tests without keys
+
+`tests/fakes.py` swaps Pinecone for an in-memory store and OpenAI for a
+`ScriptedChatModel` that replies with a fixed list of messages, tool calls included. The
+tests replace the real objects through `app.dependency_overrides`, so the real routes,
+services and agent graph run with no network and no cost.
+
+```bash
+uv run pytest
+```
+
+## Using it from the AgriVibe frontend
+
+The AgriVibe Lite frontend (Next.js) keeps all its knowledge in four Markdown files
+pasted into one agent's prompt. FieldOracle replaces that with retrieval:
+
+- Its Crop Knowledge agent calls `POST /ask` (or `POST /search`) instead of reading
+  `KNOWLEDGE_BASE`.
+- `sentences` render as the answer, one citation chip per sentence. A sentence with
+  `verified: false` should look different.
+- `sources` render as an evidence panel: file, page, passage.
+- `searches` render as live tool chips, the same way satellite and weather calls show today.
+- Add the frontend's URL to `CORS_ORIGINS` if the browser calls FieldOracle directly.
+
+## Growing into a multi-agent backend
+
+AgriVibe runs several agents in a fixed order (intake, field evidence, knowledge,
+advisory). That fits this layout without moving anything:
+
+```
+src/agrivibe/
+├── agents/
+│   ├── rag/           ← exists
+│   ├── intake/        new: build_intake_agent()
+│   └── advisory/      new: build_advisory_agent()
+├── workflows/
+│   └── advisory.py    new: runs the agents in order, passing typed state between them
+├── services/
+│   └── advising.py    new: AdvisoryService invokes the workflow
+└── api/
+    └── advise.py      new: POST /advise
+```
+
+Each agent stays a package with one build function. The RAG agent can be handed to the
+others as a tool, and `/ask` keeps working on its own.
+
