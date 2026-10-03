@@ -138,8 +138,8 @@ Your output will differ in wording. The shape is fixed:
 | POST | `/search` | `{"query", "category"?, "k"?}` | `SearchResponse` |
 | POST | `/ask` | `{"question"}` | `AskResponse` |
 
-The request and response models are all in `src/agrivibe/schemas.py`. That file is the contract
-a frontend codes against.
+The request and response models are in `src/agrivibe/models/`, one module per router. That
+package is the contract a frontend codes against.
 
 ## How the code is layered
 
@@ -148,7 +148,9 @@ src/agrivibe/
 ├── main.py            the FastAPI app: middleware and routers
 ├── config.py          settings from .env
 ├── dependencies.py    builds each shared object once; tests swap them for fakes
-├── schemas.py         request and response bodies
+├── models/            request and response bodies, one module per router
+│   ├── knowledge.py   IndexResponse, SearchRequest, SearchResponse, Source
+│   └── ask.py         AskRequest, AskResponse
 ├── api/               HTTP layer: routes only, no logic
 │   ├── knowledge.py   POST /documents, POST /search
 │   └── ask.py         POST /ask

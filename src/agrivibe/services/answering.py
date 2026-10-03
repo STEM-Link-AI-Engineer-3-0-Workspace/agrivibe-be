@@ -2,7 +2,8 @@ from langchain_core.documents import Document
 from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 
 from agrivibe.agents.rag import CitedAnswer
-from agrivibe.schemas import AnswerSentence, AskResponse, Source
+from agrivibe.models.ask import AnswerSentence, AskResponse
+from agrivibe.models.knowledge import Source
 
 NOT_FOUND = "The indexed documents do not cover this question."
 
