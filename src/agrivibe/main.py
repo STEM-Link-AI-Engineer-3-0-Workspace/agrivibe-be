@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from agrivibe.api import knowledge
 from agrivibe.dependencies import get_settings
 
 app = FastAPI(
@@ -15,6 +16,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(knowledge.router)
 
 
 @app.get("/health", tags=["system"])
