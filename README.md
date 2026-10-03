@@ -100,5 +100,69 @@ On Windows, type `curl.exe` instead of `curl`, or use the `/docs` page.
   nothing covers the question.
 - `agent.py`: `create_agent(..., response_format=CitedAnswer)` joins them.
 
-<!-- step-05 -->
+### Step 05 · The ask endpoint
+
+`POST /ask` calls `AnswerService.ask`, which invokes the agent and builds the response.
+Before it answers, it runs a grounding check. Every citation is compared with the chunks the
+search tool actually returned in this run, and a citation to a passage that was never
+retrieved is marked `verified: false`.
+
+```bash
+curl -X POST localhost:8000/ask -H "Content-Type: application/json" \
+  -d '{"question": "When is the first top dressing due on the Minneriya field, and can the farmer still claim the subsidy?"}'
+```
+
+Your output will differ in wording. The shape is fixed:
+
+```json
+{
+  "question": "...",
+  "found": true,
+  "answer": "The field was sown with Bg 300 on 2 October 2026. ...",
+  "sentences": [
+    {"sentence": "The field was sown with Bg 300 on 2 October 2026.", "citation": "minneriya-field-records-2026-41c1b4-0", "verified": true}
+  ],
+  "sources": [
+    {"id": "minneriya-field-records-2026-41c1b4-0", "source": "minneriya_field_records_2026.pdf", "page": 1, "category": "farm_record", "text": "..."}
+  ],
+  "searches": ["Minneriya field sowing date variety", "top dressing timing three-month variety", "fertiliser subsidy eligibility deadline"]
+}
+```
+
+## Endpoints
+
+| Method | Path | Body | Returns |
+|---|---|---|---|
+| GET | `/health` | | `{"status": "ok"}` |
+| POST | `/documents` | form: `file` (PDF), `category` | `IndexResponse` |
+| POST | `/search` | `{"query", "category"?, "k"?}` | `SearchResponse` |
+| POST | `/ask` | `{"question"}` | `AskResponse` |
+
+The request and response models are all in `src/agrivibe/schemas.py`. That file is the contract
+a frontend codes against.
+
+## How the code is layered
+
+```
+src/agrivibe/
+├── main.py            the FastAPI app: middleware and routers
+├── config.py          settings from .env
+├── dependencies.py    builds each shared object once; tests swap them for fakes
+├── schemas.py         request and response bodies
+├── api/               HTTP layer: routes only, no logic
+│   ├── knowledge.py   POST /documents, POST /search
+│   └── ask.py         POST /ask
+├── services/          one class per use case
+│   ├── knowledge.py   read PDF, split, tag, upsert; search
+│   └── answering.py   invoke the agent, check citations, shape the response
+├── agents/            agent layer: knows nothing about HTTP
+│   └── rag/           the RAG agent: tool, prompt, output schema
+└── core/              clients shared by every layer
+    ├── llm.py         the chat model
+    └── vectorstore.py Pinecone, the Category type, search_chunks
+```
+
+Calls only go down: `api → services → agents → core`. A route never touches Pinecone and
+an agent never sees a request.
+
 <!-- step-06 -->
