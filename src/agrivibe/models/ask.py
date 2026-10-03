@@ -12,11 +12,10 @@ class AskRequest(BaseModel):
 
 
 class AnswerSentence(BaseModel):
-    """One sentence of the answer, its citation and whether the citation checked out."""
+    """One sentence of the answer and the ids of the passages it cites."""
 
     sentence: str
-    citation: str
-    verified: bool = Field(description="False if the citation is not a passage the agent actually retrieved.")
+    citations: list[str]
 
 
 class AskResponse(BaseModel):
@@ -24,7 +23,7 @@ class AskResponse(BaseModel):
 
     question: str
     found: bool
-    answer: str
+    answer: str = Field(description="The sentences joined, each followed by its citations: `Sentence [id-1, id-2]`.")
     sentences: list[AnswerSentence]
     sources: list[Source]
     searches: list[str] = Field(description="The search queries the agent ran, in order.")

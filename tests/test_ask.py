@@ -24,21 +24,23 @@ def use_agent(vector_store, replies):
 
 def test_ask_returns_cited_sentences(client, vector_store):
     upload(client, "fertiliser_subsidy_circular_2026.pdf", "policy")
-    real_id = next(iter(vector_store.store))
+    first, second = list(vector_store.store)[:2]
     use_agent(vector_store, [
         search_call("subsidy claim deadline", "policy"),
         answer_call(True, [
-            {"sentence": "Claims close on 15 November 2026.", "citation": real_id},
-            {"sentence": "The subsidy is paid in cash.", "citation": "made-up-id-7"},
+            {"sentence": "Claims close on 15 November 2026.", "citations": [first, second]},
+            {"sentence": "Apply at the Agrarian Service Centre.", "citations": [second]},
         ]),
     ])
 
     body = client.post("/ask", json={"question": "When do subsidy claims close?"}).json()
 
     assert body["found"] is True
+    assert body["answer"] == (
+        f"Claims close on 15 November 2026. [{first}, {second}] Apply at the Agrarian Service Centre. [{second}]"
+    )
     assert body["searches"] == ["subsidy claim deadline"]
-    assert [s["verified"] for s in body["sentences"]] == [True, False]
-    assert [source["id"] for source in body["sources"]] == [real_id]
+    assert {source["id"] for source in body["sources"]} == {first, second}
 
 
 def test_ask_not_found(client, vector_store):
