@@ -1,11 +1,26 @@
+from uuid import uuid4
+
 from langchain_core.documents import Document
-from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 
 from agrivibe.agents.rag import CitedAnswer
 from agrivibe.models.ask import AnswerSentence, AskResponse
 from agrivibe.models.knowledge import Source
 
 NOT_FOUND = "The indexed documents do not cover this question."
+
+
+def current_turn(messages: list[BaseMessage]) -> list[BaseMessage]:
+    """Drops the earlier turns of a thread, keeping the latest question onwards.
+
+    Args:
+        messages: The thread's full message history after a run.
+
+    Returns:
+        The messages from the last user message to the end.
+    """
+    starts = [i for i, message in enumerate(messages) if isinstance(message, HumanMessage)]
+    return messages[starts[-1]:] if starts else messages
 
 
 def retrieved_chunks(messages: list[BaseMessage]) -> dict[str, Document]:
@@ -60,19 +75,25 @@ class AnswerService:
         """
         self.rag_agent = rag_agent
 
-    def ask(self, question: str) -> AskResponse:
+    def ask(self, question: str, thread_id: str | None = None) -> AskResponse:
         """Asks the agent a question and builds a cited response.
 
         Args:
             question: The user's question.
+            thread_id: The conversation to continue. A new one is started when empty.
 
         Returns:
             The answer as text with citations in brackets, the same sentences as a
             list, and the retrieved passages the answer cites.
         """
-        result = self.rag_agent.invoke({"messages": [{"role": "user", "content": question}]})
+        thread_id = thread_id or str(uuid4())
+        result = self.rag_agent.invoke(
+            {"messages": [{"role": "user", "content": question}]},
+            {"configurable": {"thread_id": thread_id}},
+        )
         answer: CitedAnswer = result["structured_response"]
-        messages = result["messages"]
+        # The checkpointer returns the whole thread. Sources and searches come from this turn only.
+        messages = current_turn(result["messages"])
 
         found = answer.found and bool(answer.sentences)
         sentences = answer.sentences if found else []
@@ -80,6 +101,7 @@ class AnswerService:
 
         return AskResponse(
             question=question,
+            thread_id=thread_id,
             found=found,
             answer=" ".join(f"{s.sentence} [{', '.join(s.citations)}]" for s in sentences) if found else NOT_FOUND,
             sentences=[AnswerSentence(sentence=s.sentence, citations=s.citations) for s in sentences],

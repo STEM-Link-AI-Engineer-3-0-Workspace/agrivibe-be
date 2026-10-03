@@ -1,4 +1,5 @@
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, HumanMessage
+from langgraph.checkpoint.memory import InMemorySaver
 
 from agrivibe.agents.rag import build_rag_agent
 from agrivibe.dependencies import get_answer_service
@@ -18,8 +19,10 @@ def answer_call(found, sentences):
 
 def use_agent(vector_store, replies):
     """Run the real agent graph, with a scripted model in place of OpenAI."""
-    agent = build_rag_agent(ScriptedChatModel(replies=replies), vector_store, k=10)
-    app.dependency_overrides[get_answer_service] = lambda: AnswerService(agent)
+    agent = build_rag_agent(ScriptedChatModel(replies=replies), vector_store, k=10, checkpointer=InMemorySaver())
+    service = AnswerService(agent)
+    app.dependency_overrides[get_answer_service] = lambda: service
+    return agent
 
 
 def test_ask_returns_cited_sentences(client, vector_store):
@@ -52,3 +55,35 @@ def test_ask_not_found(client, vector_store):
     assert body["found"] is False
     assert body["answer"] == NOT_FOUND
     assert body["sources"] == []
+
+
+def test_follow_up_continues_the_thread(client, vector_store):
+    upload(client, "fertiliser_subsidy_circular_2026.pdf", "policy")
+    first, second = list(vector_store.store)[:2]
+    agent = use_agent(vector_store, [
+        search_call("subsidy claim deadline", "policy"),
+        answer_call(True, [{"sentence": "Claims close on 15 November 2026.", "citations": [first]}]),
+        search_call("where to apply for subsidy", "policy"),
+        answer_call(True, [{"sentence": "Apply at the Agrarian Service Centre.", "citations": [second]}]),
+    ])
+
+    opening = client.post("/ask", json={"question": "When do subsidy claims close?"}).json()
+    follow_up = client.post("/ask", json={"question": "Where do I apply?", "thread_id": opening["thread_id"]}).json()
+
+    assert follow_up["thread_id"] == opening["thread_id"]
+    assert follow_up["searches"] == ["where to apply for subsidy"]
+    assert {source["id"] for source in follow_up["sources"]} == {second}
+    history = agent.get_state({"configurable": {"thread_id": opening["thread_id"]}}).values["messages"]
+    assert [m.content for m in history if isinstance(m, HumanMessage)] == ["When do subsidy claims close?", "Where do I apply?"]
+
+
+def test_new_question_starts_a_new_thread(client, vector_store):
+    use_agent(vector_store, [
+        search_call("tea pruning cycle"), answer_call(False, []),
+        search_call("tea pruning cycle"), answer_call(False, []),
+    ])
+
+    one = client.post("/ask", json={"question": "How often should I prune tea?"}).json()
+    two = client.post("/ask", json={"question": "How often should I prune tea?"}).json()
+
+    assert one["thread_id"] != two["thread_id"]
