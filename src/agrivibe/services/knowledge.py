@@ -31,23 +31,23 @@ def make_doc_id(filename: str, data: bytes) -> str:
     return f"{stem}-{digest}"
 
 
-def read_pdf(data: bytes) -> list[Document]:
+def read_pdf(data: bytes, metadata: dict) -> list[Document]:
     """Extracts the text of each page of a PDF.
 
     Args:
         data: The PDF's bytes.
+        metadata: Fields copied onto every page, and from there onto every chunk.
 
     Returns:
         One document per page that has text, with its 1-based page number in
         the metadata. Pages without text (scans, blank pages) are skipped.
     """
     reader = PdfReader(BytesIO(data))
-    pages = []
-    for number, page in enumerate(reader.pages, start=1):
-        text = page.extract_text() or ""
-        if text.strip():
-            pages.append(Document(page_content=text, metadata={"page": number}))
-    return pages
+    return [
+        Document(page_content=text, metadata={**metadata, "page": number})
+        for number, page in enumerate(reader.pages, start=1)
+        if (text := page.extract_text() or "").strip()
+    ]
 
 
 class KnowledgeService:
@@ -62,7 +62,9 @@ class KnowledgeService:
             chunk_overlap: The characters shared by neighbouring chunks.
         """
         self.vector_store = vector_store
-        self.splitter = RecursiveCharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+        self.splitter = RecursiveCharacterTextSplitter(
+            chunk_size=chunk_size, chunk_overlap=chunk_overlap, add_start_index=True
+        )
 
     def index_pdf(self, filename: str, data: bytes, category: Category) -> IndexResponse:
         """Splits a PDF into chunks, tags each one and upserts them.
@@ -78,19 +80,17 @@ class KnowledgeService:
         Raises:
             ValueError: If no page of the PDF has extractable text.
         """
-        pages = read_pdf(data)
+        doc_id = make_doc_id(filename, data)
+        pages = read_pdf(data, {"doc_id": doc_id, "source": filename, "category": category})
         if not pages:
             raise ValueError("No text could be extracted. Is this a scanned PDF?")
 
-        doc_id = make_doc_id(filename, data)
         chunks = self.splitter.split_documents(pages)
-        ids = []
         for number, chunk in enumerate(chunks):
-            chunk_id = f"{doc_id}-{number}"
-            chunk.metadata.update(chunk_id=chunk_id, doc_id=doc_id, source=filename, category=category)
-            ids.append(chunk_id)
+            chunk.metadata["chunk_id"] = number
+            chunk.id = f"{doc_id}-{number}"
 
-        self.vector_store.add_documents(chunks, ids=ids)
+        self.vector_store.add_documents(chunks)
         return IndexResponse(doc_id=doc_id, filename=filename, category=category, pages=len(pages), chunks=len(chunks))
 
     def search(self, query: str, k: int, category: Category | None = None) -> SearchResponse:
@@ -106,7 +106,7 @@ class KnowledgeService:
         """
         hits = [
             SearchHit(
-                id=doc.metadata["chunk_id"],
+                id=doc.id,
                 source=doc.metadata["source"],
                 page=doc.metadata["page"],
                 category=doc.metadata["category"],
