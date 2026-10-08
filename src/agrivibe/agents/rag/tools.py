@@ -12,7 +12,7 @@ def format_passages(docs: list[Document]) -> str:
         docs: The retrieved chunks.
 
     Returns:
-        One block per chunk, headed by `[chunk_id] source, page N` so the model
+        One block per chunk, headed by `[id] source, page N` so the model
         has an exact id to cite.
     """
     if not docs:
@@ -20,7 +20,7 @@ def format_passages(docs: list[Document]) -> str:
     blocks = []
     for doc in docs:
         meta = doc.metadata
-        header = f"[{meta['chunk_id']}] {meta['source']}, page {meta['page']}"
+        header = f"[{doc.id}] {meta['source']}, page {meta['page']}"
         blocks.append(header + "\n" + doc.page_content)
     return "\n\n".join(blocks)
 

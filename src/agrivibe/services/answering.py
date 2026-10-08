@@ -36,7 +36,7 @@ def retrieved_chunks(messages: list[BaseMessage]) -> dict[str, Document]:
     for message in messages:
         if isinstance(message, ToolMessage) and message.name == "search_knowledge":
             for doc in message.artifact or []:
-                chunks[doc.metadata["chunk_id"]] = doc
+                chunks[doc.id] = doc
     return chunks
 
 
@@ -61,7 +61,7 @@ def search_queries(messages: list[BaseMessage]) -> list[str]:
 def to_source(doc: Document) -> Source:
     """Converts a retrieved chunk to the `Source` shape the API returns."""
     meta = doc.metadata
-    return Source(id=meta["chunk_id"], source=meta["source"], page=meta["page"], category=meta["category"], text=doc.page_content)
+    return Source(id=doc.id, source=meta["source"], page=meta["page"], category=meta["category"], text=doc.page_content)
 
 
 class AnswerService:
