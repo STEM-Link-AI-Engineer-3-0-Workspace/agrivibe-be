@@ -8,6 +8,7 @@ from langchain_core.vectorstores import VectorStore
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pypdf import PdfReader
 
+from agrivibe.core.reranker import Reranker
 from agrivibe.db.vectorstore import Category, search_chunks
 from agrivibe.models.knowledge import IndexResponse, SearchHit, SearchResponse
 
@@ -53,15 +54,19 @@ def read_pdf(data: bytes, metadata: dict) -> list[Document]:
 class KnowledgeService:
     """Indexes PDFs into the vector store and searches them."""
 
-    def __init__(self, vector_store: VectorStore, chunk_size: int, chunk_overlap: int):
+    def __init__(
+        self, vector_store: VectorStore, chunk_size: int, chunk_overlap: int, reranker: Reranker | None = None
+    ):
         """Initializes the service.
 
         Args:
             vector_store: Where chunks are stored and searched.
             chunk_size: The maximum characters per chunk.
             chunk_overlap: The characters shared by neighbouring chunks.
+            reranker: The cross-encoder that re-scores search hits. None turns reranking off.
         """
         self.vector_store = vector_store
+        self.reranker = reranker
         self.splitter = RecursiveCharacterTextSplitter(
             chunk_size=chunk_size, chunk_overlap=chunk_overlap, add_start_index=True
         )
@@ -93,17 +98,19 @@ class KnowledgeService:
         self.vector_store.add_documents(chunks)
         return IndexResponse(doc_id=doc_id, filename=filename, category=category, pages=len(pages), chunks=len(chunks))
 
-    def search(self, query: str, k: int, category: Category | None = None) -> SearchResponse:
-        """Runs a plain vector search, with no model involved.
+    def search(self, query: str, k: int, category: Category | None = None, rerank: bool = True) -> SearchResponse:
+        """Runs a vector search, then reranks the hits with the cross-encoder. No chat model is involved.
 
         Args:
             query: The text to search for.
             k: The number of hits to return.
             category: If set, only chunks tagged with this category are searched.
+            rerank: If False, skips the cross-encoder and keeps the vector order.
 
         Returns:
-            The hits with their metadata and similarity scores, best match first.
+            The hits with their metadata, similarity scores and rerank scores, best match first.
         """
+        reranker = self.reranker if rerank else None
         hits = [
             SearchHit(
                 id=doc.id,
@@ -112,7 +119,8 @@ class KnowledgeService:
                 category=doc.metadata["category"],
                 text=doc.page_content,
                 score=score,
+                rerank_score=doc.metadata.get("rerank_score"),
             )
-            for doc, score in search_chunks(self.vector_store, query, k, category)
+            for doc, score in search_chunks(self.vector_store, query, k, category, reranker)
         ]
         return SearchResponse(hits=hits)

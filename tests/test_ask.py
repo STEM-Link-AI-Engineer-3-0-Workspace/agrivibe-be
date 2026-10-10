@@ -6,7 +6,7 @@ from agrivibe.dependencies import get_answer_service
 from agrivibe.main import app
 from agrivibe.service.answering import NOT_FOUND, AnswerService
 from tests.conftest import upload
-from tests.fakes import ScriptedChatModel
+from tests.fakes import FakeReranker, ScriptedChatModel
 
 
 def search_call(query, category=None):
@@ -17,9 +17,11 @@ def answer_call(found, sentences):
     return AIMessage(content="", tool_calls=[{"name": "CitedAnswer", "args": {"found": found, "sentences": sentences}, "id": "final"}])
 
 
-def use_agent(vector_store, replies):
+def use_agent(vector_store, replies, k=10, reranker=None):
     """Run the real agent graph, with a scripted model in place of OpenAI."""
-    agent = build_fieldoracle_agent(ScriptedChatModel(replies=replies), vector_store, k=10, checkpointer=InMemorySaver())
+    agent = build_fieldoracle_agent(
+        ScriptedChatModel(replies=replies), vector_store, k=k, checkpointer=InMemorySaver(), reranker=reranker
+    )
     service = AnswerService(agent)
     app.dependency_overrides[get_answer_service] = lambda: service
     return agent
@@ -87,3 +89,29 @@ def test_new_question_starts_a_new_thread(client, vector_store):
     two = client.post("/ask", json={"question": "How often should I prune tea?"}).json()
 
     assert one["thread_id"] != two["thread_id"]
+
+
+def test_reranked_citations_point_to_retrieved_record_ids(client, vector_store):
+    upload(client, "paddy_cultivation_guide.pdf", "cultivation_guide")
+    upload(client, "fertiliser_subsidy_circular_2026.pdf", "policy")
+    reranker = FakeReranker()
+    # The same two-stage search the tool runs, to know which record ids it will return.
+    candidates = [doc for doc, _score in vector_store.similarity_search_with_score("subsidy claim deadline", k=20)]
+    scores = dict(zip([doc.id for doc in candidates], reranker.score("subsidy claim deadline", candidates)))
+    top = sorted(scores, key=lambda record_id: scores[record_id], reverse=True)[:2]
+    agent = use_agent(vector_store, [
+        search_call("subsidy claim deadline"),
+        answer_call(True, [{"sentence": "Claims close on 15 November 2026.", "citations": top}]),
+    ], k=2, reranker=reranker)
+
+    body = client.post("/ask", json={"question": "When do subsidy claims close?"}).json()
+
+    tool_message = next(
+        m for m in agent.get_state({"configurable": {"thread_id": body["thread_id"]}}).values["messages"]
+        if m.type == "tool"
+    )
+    # The model reads passages headed by record ids, best rerank score first.
+    assert tool_message.content.index(f"[{top[0]}]") < tool_message.content.index(f"[{top[1]}]")
+    # Sources come from the tool's artifact, so they keep its reranked order and carry the rerank score.
+    assert [source["id"] for source in body["sources"]] == top
+    assert [source["rerank_score"] for source in body["sources"]] == [scores[i] for i in top]

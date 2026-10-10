@@ -30,7 +30,8 @@ def retrieved_chunks(messages: list[BaseMessage]) -> dict[str, Document]:
         messages: The agent's message history for the run.
 
     Returns:
-        The retrieved chunks, keyed by chunk id.
+        The retrieved chunks, keyed by record id (`<doc_id>-<n>`). Metadata
+        chunk_id is only the chunk's position and repeats across documents.
     """
     chunks = {}
     for message in messages:
@@ -61,7 +62,14 @@ def search_queries(messages: list[BaseMessage]) -> list[str]:
 def to_source(doc: Document) -> Source:
     """Converts a retrieved chunk to the `Source` shape the API returns."""
     meta = doc.metadata
-    return Source(id=doc.id, source=meta["source"], page=meta["page"], category=meta["category"], text=doc.page_content)
+    return Source(
+        id=doc.id or "",
+        source=meta["source"],
+        page=meta["page"],
+        category=meta["category"],
+        text=doc.page_content,
+        rerank_score=meta.get("rerank_score"),
+    )
 
 
 class AnswerService:

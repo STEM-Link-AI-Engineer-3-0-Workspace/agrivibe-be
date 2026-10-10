@@ -72,8 +72,8 @@ The id is the file name plus a hash of the file's bytes, plus the chunk number, 
 `paddy-cultivation-guide-a29d87-2`. Uploading the same PDF twice overwrites the same
 ids rather than adding duplicates.
 
-`POST /search` runs a plain vector search with no model involved, so you can see exactly
-what retrieval returns before an agent ever reads it.
+`POST /search` runs retrieval with no chat model involved, so you can see exactly what
+retrieval returns before an agent ever reads it. (Step 07 adds a reranking stage to it.)
 
 Try it with the three synthetic PDFs in `samples/`:
 
@@ -135,7 +135,7 @@ Your output will differ in wording. The shape is fixed:
     {"sentence": "The field was sown with Bg 300 on 2 October 2026.", "citations": ["minneriya-field-records-2026-41c1b4-0"]}
   ],
   "sources": [
-    {"id": "minneriya-field-records-2026-41c1b4-0", "source": "minneriya_field_records_2026.pdf", "page": 1, "category": "farm_record", "text": "..."}
+    {"id": "minneriya-field-records-2026-41c1b4-0", "source": "minneriya_field_records_2026.pdf", "page": 1, "category": "farm_record", "text": "...", "rerank_score": 0.94}
   ],
   "searches": ["Minneriya field sowing date variety", "top dressing timing three-month variety", "fertiliser subsidy eligibility deadline"]
 }
@@ -147,7 +147,7 @@ Your output will differ in wording. The shape is fixed:
 |---|---|---|---|
 | GET | `/health` | | `{"status": "ok"}` |
 | POST | `/documents` | form: `file` (PDF), `category` | `IndexResponse` |
-| POST | `/search` | `{"query", "category"?, "k"?}` | `SearchResponse` |
+| POST | `/search` | `{"query", "category"?, "k"?, "rerank"?}` | `SearchResponse` |
 | POST | `/ask` | `{"question", "thread_id"?}` | `AskResponse` |
 
 The request and response models are in `src/agrivibe/models/`, one module per router. That
@@ -172,9 +172,10 @@ src/agrivibe/
 ├── agents/            agent layer: knows nothing about HTTP
 │   └── fieldoracle/   the RAG agent: tool, prompt, output schema
 ├── core/              model clients shared by every layer
-│   └── llm.py         the chat model
+│   ├── llm.py         the chat model
+│   └── reranker.py    the cross-encoder that re-scores search hits
 └── db/                data access: where the indexed chunks live
-    └── vectorstore.py Pinecone, the Category type, search_chunks
+    └── vectorstore.py Pinecone, the Category type, search_chunks (search, then rerank)
 ```
 
 Calls only go down: `api → service → agents → core, db`. A route never touches Pinecone and
@@ -190,6 +191,57 @@ service layer and agent graph run with no network and no cost.
 ```bash
 uv run pytest
 ```
+
+### Step 07 · Two-stage retrieval
+
+A vector search embeds the question and each chunk separately, then compares the two
+vectors. That is fast, because every chunk was embedded once at upload time, but the
+question and the chunk never meet, so a chunk that shares the topic can outrank the one
+that holds the answer.
+
+A **cross-encoder** reads the question and the chunk together, as one input, and outputs
+one relevance score. It sees which words of the question the chunk actually answers, so it
+ranks better. The price is that it has to run once per chunk for every question; nothing
+can be computed ahead of time. Running it over the whole index would take far too long.
+
+So retrieval now runs in two stages:
+
+1. **Recall.** Pinecone returns the `RERANK_CANDIDATES` closest chunks (default 20).
+2. **Precision.** The cross-encoder scores those 20 against the question and the best
+   `SEARCH_K` (default 4) are kept, best first.
+
+Both stages live in `search_chunks` (`src/agrivibe/db/vectorstore.py`), so `POST /search`
+and the agent's `search_knowledge` tool share them. The cross-encoder itself is
+`Reranker` in `src/agrivibe/core/reranker.py`, built once in `dependencies.py` and passed
+to `KnowledgeService` and the agent. Each hit keeps its vector `score` and gains a
+`rerank_score`; each source in an `/ask` answer carries its `rerank_score` too.
+
+Pick the cross-encoder with `RERANKER` in `.env`:
+
+| `RERANKER` | Model | Runs | Notes |
+|---|---|---|---|
+| `pinecone` (default) | `RERANK_MODEL`, default `bge-reranker-v2-m3` | Pinecone's servers | Reuses `PINECONE_API_KEY`, installs nothing. The Starter plan has a monthly rerank quota; if a rerank fails, the log says so and the vector order is kept. |
+| `none` | | | The Step 06 behaviour: one vector search for `SEARCH_K` chunks. |
+
+Every rerank logs its cost, so you can see what the second stage adds to each search:
+
+```
+INFO:     agrivibe.core.reranker: Reranked 20 chunks with pinecone in <n> ms
+```
+
+To compare the two orders, send the same query with `"rerank": false`:
+
+```bash
+curl -X POST localhost:8000/search -H "Content-Type: application/json" -d '{"query": "subsidy claim deadline"}'
+curl -X POST localhost:8000/search -H "Content-Type: application/json" -d '{"query": "subsidy claim deadline", "rerank": false}'
+```
+
+Chunks are always identified by their record id, `<doc_id>-<n>`. The `chunk_id` in the
+metadata is only the chunk's position in its PDF, so every PDF has a chunk 0; it is never
+used to tell chunks apart or to cite them.
+
+The tests swap the real cross-encoder for `FakeReranker` in `tests/fakes.py`, which scores
+a chunk by how many words of the query it contains.
 
 ## Using it from the AgriVibe frontend
 

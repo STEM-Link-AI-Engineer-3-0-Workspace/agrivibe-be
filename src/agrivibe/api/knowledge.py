@@ -25,5 +25,5 @@ def index_document(file: UploadFile, category: Annotated[Category, Form()], serv
 
 @router.post("/search")
 def search(request: SearchRequest, service: Service) -> SearchResponse:
-    """Plain vector search, no model involved. Useful for checking what retrieval returns."""
-    return service.search(request.query, request.k, request.category)
+    """Vector search, then rerank. No chat model involved. Useful for checking what retrieval returns."""
+    return service.search(request.query, request.k, request.category, request.rerank)
