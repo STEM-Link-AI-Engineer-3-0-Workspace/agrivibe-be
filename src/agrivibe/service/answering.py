@@ -3,7 +3,7 @@ from uuid import uuid4
 from langchain_core.documents import Document
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 
-from agrivibe.agents.rag import CitedAnswer
+from agrivibe.agents.fieldoracle import CitedAnswer
 from agrivibe.models.ask import AnswerSentence, AskResponse
 from agrivibe.models.knowledge import Source
 
@@ -71,7 +71,7 @@ class AnswerService:
         """Initializes the service.
 
         Args:
-            rag_agent: The agent built by `build_rag_agent`.
+            rag_agent: The agent built by `build_fieldoracle_agent`.
         """
         self.rag_agent = rag_agent
 

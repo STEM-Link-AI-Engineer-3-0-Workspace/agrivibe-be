@@ -88,7 +88,7 @@ On Windows, type `curl.exe` instead of `curl`, or use the `/docs` page.
 
 ### Step 04 · The RAG agent
 
-`src/agrivibe/agents/rag/` is the agent layer. It has no idea HTTP exists.
+`src/agrivibe/agents/fieldoracle/` is the agent layer. It has no idea HTTP exists.
 
 - `tools.py`: `search_knowledge` is the retriever wrapped as a tool. Its docstring is the
   prompt that tells the model when to filter by category. It returns two things
@@ -166,18 +166,18 @@ src/agrivibe/
 ├── api/               HTTP layer: routes only, no logic
 │   ├── knowledge.py   POST /documents, POST /search
 │   └── ask.py         POST /ask
-├── services/          one class per use case
+├── service/           one class per use case
 │   ├── knowledge.py   read PDF, split, tag, upsert; search
 │   └── answering.py   invoke the agent, format the cited answer, collect sources
 ├── agents/            agent layer: knows nothing about HTTP
-│   └── rag/           the RAG agent: tool, prompt, output schema
+│   └── fieldoracle/   the RAG agent: tool, prompt, output schema
 ├── core/              model clients shared by every layer
 │   └── llm.py         the chat model
 └── db/                data access: where the indexed chunks live
     └── vectorstore.py Pinecone, the Category type, search_chunks
 ```
 
-Calls only go down: `api → services → agents → core, db`. A route never touches Pinecone and
+Calls only go down: `api → service → agents → core, db`. A route never touches Pinecone and
 an agent never sees a request.
 
 ### Step 06 · Tests without keys
@@ -185,7 +185,7 @@ an agent never sees a request.
 `tests/fakes.py` swaps Pinecone for an in-memory store and OpenAI for a
 `ScriptedChatModel` that replies with a fixed list of messages, tool calls included. The
 tests replace the real objects through `app.dependency_overrides`, so the real routes,
-services and agent graph run with no network and no cost.
+service layer and agent graph run with no network and no cost.
 
 ```bash
 uv run pytest
@@ -213,12 +213,12 @@ advisory). That fits this layout without moving anything:
 ```
 src/agrivibe/
 ├── agents/
-│   ├── rag/           ← exists
+│   ├── fieldoracle/   ← exists
 │   ├── intake/        new: build_intake_agent()
 │   └── advisory/      new: build_advisory_agent()
 ├── workflows/
 │   └── advisory.py    new: runs the agents in order, passing typed state between them
-├── services/
+├── service/
 │   └── advising.py    new: AdvisoryService invokes the workflow
 └── api/
     └── advise.py      new: POST /advise

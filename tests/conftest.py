@@ -10,7 +10,7 @@ os.environ.setdefault("PINECONE_API_KEY", "test-key")
 
 from agrivibe.dependencies import get_knowledge_service
 from agrivibe.main import app
-from agrivibe.services.knowledge import KnowledgeService
+from agrivibe.service.knowledge import KnowledgeService
 from tests.fakes import FakeVectorStore
 
 SAMPLES = Path(__file__).parent.parent / "samples"

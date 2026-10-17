@@ -1,10 +1,10 @@
 from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.checkpoint.memory import InMemorySaver
 
-from agrivibe.agents.rag import build_rag_agent
+from agrivibe.agents.fieldoracle import build_fieldoracle_agent
 from agrivibe.dependencies import get_answer_service
 from agrivibe.main import app
-from agrivibe.services.answering import NOT_FOUND, AnswerService
+from agrivibe.service.answering import NOT_FOUND, AnswerService
 from tests.conftest import upload
 from tests.fakes import ScriptedChatModel
 
@@ -19,7 +19,7 @@ def answer_call(found, sentences):
 
 def use_agent(vector_store, replies):
     """Run the real agent graph, with a scripted model in place of OpenAI."""
-    agent = build_rag_agent(ScriptedChatModel(replies=replies), vector_store, k=10, checkpointer=InMemorySaver())
+    agent = build_fieldoracle_agent(ScriptedChatModel(replies=replies), vector_store, k=10, checkpointer=InMemorySaver())
     service = AnswerService(agent)
     app.dependency_overrides[get_answer_service] = lambda: service
     return agent
