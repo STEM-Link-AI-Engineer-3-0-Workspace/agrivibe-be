@@ -1,10 +1,17 @@
-"""Stand-ins for OpenAI and Pinecone, so the tests run offline and for free."""
+"""Stand-ins for OpenAI, Pinecone and FieldSat, so the tests run offline and for free."""
 
+import warnings
+
+from fastmcp import FastMCP
 from langchain_core.embeddings import DeterministicFakeEmbedding
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 from langchain_core.vectorstores import InMemoryVectorStore
+
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore")
+    from langchain.mcp import MCPAdapter
 
 
 class FakeVectorStore(InMemoryVectorStore):
@@ -57,3 +64,44 @@ class FakeReranker:
         self.calls += 1
         words = set(query.lower().split())
         return [float(sum(word in doc.page_content.lower() for word in words)) for doc in docs]
+
+
+def fake_fieldsat() -> FastMCP:
+    """A stand-in for the FieldSat MCP server: the same three tools, fixed numbers.
+
+    MCPAdapter connects to it in memory, so tests need no server process. The numbers
+    are FieldSat's demo values for the Minneriya field.
+    """
+    mcp = FastMCP("FieldSat (test)")
+
+    @mcp.tool
+    def list_fields() -> dict:
+        """List every field this server can analyse."""
+        return {"fields": [{"id": "SL-PADDY-MINNERIYA", "name": "Minneriya Paddy Fields", "crop": "paddy"}]}
+
+    @mcp.tool
+    def get_satellite_analysis(field_id: str, comparison_days: int) -> dict:
+        """Sentinel-2 vegetation change (NDVI) and data quality for one registered field."""
+        return {
+            "field_id": field_id,
+            "current_mean_ndvi": 0.56,
+            "previous_mean_ndvi": 0.66,
+            "ndvi_change_percentage": -15.2,
+            "trend": "significant_decline",
+            "field_uniformity": "uneven",
+            "valid_observations": 4,
+            "data_quality": "good",
+        }
+
+    @mcp.tool
+    def get_weather_context(field_id: str) -> dict:
+        """Recent rainfall and the 48-hour rain forecast for one registered field."""
+        return {"rainfall_last_7_days_mm": 112.0, "rainfall_forecast_next_48_hours_mm": 46.0, "heavy_rain_expected": True}
+
+    return mcp
+
+
+async def load_fake_fieldsat_tools() -> list:
+    """The fake server's tools, exactly as MCPAdapter hands them to an agent."""
+    async with MCPAdapter(fake_fieldsat()) as adapter:
+        return await adapter.list_tools()

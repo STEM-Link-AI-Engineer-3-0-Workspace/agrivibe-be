@@ -31,6 +31,13 @@ copy .env.example .env
 
 Then open `.env` and paste in both keys.
 
+The app also needs the FieldSat MCP server from Level 6 Lesson 3. In that repo, in a second
+terminal, start it before you start this app:
+
+```bash
+uv run fieldsat --demo --transport http --port 8001
+```
+
 The code is a package, `agrivibe`, in `src/`. `uv sync` installs it into `.venv` in
 editable mode, so `import agrivibe` works from anywhere and your edits apply without a
 reinstall.
@@ -157,7 +164,7 @@ package is the contract a frontend codes against.
 
 ```
 src/agrivibe/
-├── main.py            the FastAPI app: middleware and routers
+├── main.py            the FastAPI app: lifespan, middleware and routers
 ├── config.py          settings from .env
 ├── dependencies.py    builds each shared object once; tests swap them for fakes
 ├── models/            request and response bodies, one module per router
@@ -170,10 +177,13 @@ src/agrivibe/
 │   ├── knowledge.py   read PDF, split, tag, upsert; search
 │   └── answering.py   invoke the agent, format the cited answer, collect sources
 ├── agents/            agent layer: knows nothing about HTTP
-│   └── fieldoracle/   the RAG agent: tool, prompt, output schema
-├── core/              model clients shared by every layer
+│   ├── fieldoracle/   the RAG agent: tool, prompt, output schema
+│   ├── weather/       rain for one field, from FieldSat
+│   └── farm_context/  satellite field health for one field, from FieldSat
+├── core/              clients shared by every layer
 │   ├── llm.py         the chat model
-│   └── reranker.py    the cross-encoder that re-scores search hits
+│   ├── reranker.py    the cross-encoder that re-scores search hits
+│   └── mcp.py         the FieldSat tools, loaded over MCP
 └── db/                data access: where the indexed chunks live
     └── vectorstore.py Pinecone, the Category type, search_chunks (search, then rerank)
 ```
@@ -242,6 +252,55 @@ used to tell chunks apart or to cite them.
 
 The tests swap the real cross-encoder for `FakeReranker` in `tests/fakes.py`, which scores
 a chunk by how many words of the query it contains.
+
+### Step 08 · FieldSat tools over MCP
+
+The Weather and Farm Context agents read field evidence from FieldSat, the MCP server you
+built in Level 6 Lesson 3. This app never imports FieldSat's code. `core/mcp.py` asks the
+server for its tools with `MCPAdapter` (from `langchain[mcp]`) and gets back ordinary
+LangChain tools, with the names, descriptions and argument schemas the server published.
+`pick_tools` gives each agent only the tools it needs.
+
+Asking for the tools is async, so it happens in the app's `lifespan` in `main.py`, once at
+startup. FieldSat is required in the same way as the API keys: if the server cannot be
+reached, the app refuses to start and tells you how to start it. With FieldSat running,
+`uv run fastapi dev` prints:
+
+```
+FieldSat tools: list_fields, get_satellite_analysis, get_weather_context
+```
+
+FieldSat listens on port 8001 because this app uses 8000. If your server runs elsewhere, set
+`FIELDSAT_URL` in `.env`.
+
+### Step 09 · The Weather Agent
+
+`agents/weather/` has the same shape as `agents/fieldoracle/`: a prompt and one build
+function. `build_weather_agent` takes the chat model and every FieldSat tool, and keeps two:
+`list_fields`, to turn a place name such as Minneriya into a field ID, and
+`get_weather_context`. Its last message is a short report with every number in it, because
+that message is all the caller will see.
+
+MCP tools are async, so the agent is run with `ainvoke`. Try it before any endpoint uses it:
+
+```bash
+uv run python scripts/try_agent.py weather "How much rain has the Minneriya field had this week?"
+```
+
+The script prints each tool call the agent made, what FieldSat answered, and the report.
+
+### Step 10 · The Farm Context Agent
+
+`agents/farm_context/` repeats the pattern with the satellite tool: `list_fields` and
+`get_satellite_analysis`. Its prompt fixes the comparison window at 14 days unless the
+request names another, puts poor data quality first, and forbids naming a cause: NDVI says
+the crop got less green, not why.
+
+```bash
+uv run python scripts/try_agent.py farm_context "Is the Minneriya field greener than two weeks ago?"
+```
+
+Two agents, two tools each, from the same server. Neither knows the other exists.
 
 ## Using it from the AgriVibe frontend
 

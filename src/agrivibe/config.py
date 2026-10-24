@@ -34,4 +34,7 @@ class Settings(BaseSettings):
     rerank_model: str = "bge-reranker-v2-m3"
     rerank_candidates: int = 20
 
+    # The FieldSat MCP server from Level 6 Lesson 3. Port 8001, because this app uses 8000.
+    fieldsat_url: str = "http://127.0.0.1:8001/mcp"
+
     cors_origins: list[str] = ["http://localhost:3000"]
