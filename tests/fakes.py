@@ -9,6 +9,7 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 from langchain_core.vectorstores import InMemoryVectorStore
+from pydantic import Field
 
 with warnings.catch_warnings():
     warnings.simplefilter("ignore")
@@ -38,6 +39,7 @@ class ScriptedChatModel(BaseChatModel):
 
     replies: list[AIMessage]
     calls: int = 0
+    received: list = Field(default_factory=list)  # the messages sent on each call, for tests to read
 
     @property
     def _llm_type(self) -> str:
@@ -47,6 +49,7 @@ class ScriptedChatModel(BaseChatModel):
         return self
 
     def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+        self.received.append(messages)
         reply = self.replies[self.calls]
         self.calls += 1
         return ChatResult(generations=[ChatGeneration(message=reply)])

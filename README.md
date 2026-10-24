@@ -1,13 +1,18 @@
-# FieldOracle
+# AgriVibe backend
 
-The knowledge service behind AgriVibe. You upload PDFs (cultivation guides, government
-circulars, farm records) and FieldOracle splits them, embeds them and stores them in
-Pinecone. You ask a question and a RAG agent searches that store and answers with a
-citation after every sentence, so every sentence traces back to passages in a PDF.
+The backend behind AgriVibe, an advisory app for farmers in Sri Lanka. It is a FastAPI app
+built across the STEMLink AI Engineer Bootcamp. The code is kept small on purpose, but the
+layout is the one you would use at work.
 
-It is a FastAPI app built in Level 4 Lesson 2 of the STEMLink AI Engineer Bootcamp. The
-code is kept small on purpose, but the layout is the one you would use at work, and it is
-the backend the AgriVibe frontend will call later.
+It started in Level 4 as FieldOracle, the knowledge service. You upload PDFs (cultivation
+guides, government circulars, farm records) and FieldOracle splits them, embeds them and
+stores them in Pinecone. You ask a question and a RAG agent searches that store and answers
+with a citation after every sentence, so every sentence traces back to passages in a PDF.
+
+In Level 6 it becomes a multi-agent backend. The farmer talks to an orchestrator, which
+calls specialist agents as tools: FieldOracle for knowledge, a Weather Agent and a Farm
+Context Agent that read field evidence from the FieldSat MCP server, and an Advisory Agent
+that turns their evidence into one recommendation.
 
 ## Setup
 
@@ -156,6 +161,7 @@ Your output will differ in wording. The shape is fixed:
 | POST | `/documents` | form: `file` (PDF), `category` | `IndexResponse` |
 | POST | `/search` | `{"query", "category"?, "k"?, "rerank"?}` | `SearchResponse` |
 | POST | `/ask` | `{"question", "thread_id"?}` | `AskResponse` |
+| POST | `/chat` | `{"message", "user_id", "thread_id"?}` | `ChatResponse` |
 
 The request and response models are in `src/agrivibe/models/`, one module per router. That
 package is the contract a frontend codes against.
@@ -169,18 +175,23 @@ src/agrivibe/
 ├── dependencies.py    builds each shared object once; tests swap them for fakes
 ├── models/            request and response bodies, one module per router
 │   ├── knowledge.py   IndexResponse, SearchRequest, SearchResponse, Source
-│   └── ask.py         AskRequest, AskResponse
+│   ├── ask.py         AskRequest, AskResponse
+│   └── chat.py        ChatRequest, ChatResponse
 ├── api/               HTTP layer: routes only, no logic
 │   ├── knowledge.py   POST /documents, POST /search
-│   └── ask.py         POST /ask
+│   ├── ask.py         POST /ask
+│   └── chat.py        POST /chat
 ├── service/           one class per use case
 │   ├── knowledge.py   read PDF, split, tag, upsert; search
-│   └── answering.py   invoke the agent, format the cited answer, collect sources
+│   ├── answering.py   invoke the RAG agent, format the cited answer, collect sources
+│   └── chatting.py    invoke the orchestrator, report the tools it called
 ├── agents/            agent layer: knows nothing about HTTP
 │   ├── fieldoracle/   the RAG agent: tool, prompt, output schema
 │   ├── fieldsat.py    what the FieldSat agents share: FieldContext, FieldReport, FieldSatReport
 │   ├── weather/       rain for one field, from FieldSat
-│   └── farm_context/  satellite field health for one field, from FieldSat
+│   ├── farm_context/  satellite field health for one field, from FieldSat
+│   ├── advisory/      one recommendation from the other agents' findings
+│   └── orchestrator/  talks to the farmer, calls the specialists as tools, owns central memory
 ├── core/              clients shared by every layer
 │   ├── llm.py         the chat model
 │   ├── reranker.py    the cross-encoder that re-scores search hits
@@ -337,6 +348,159 @@ uv run python scripts/try_agent.py farm_context SL-PADDY-MINNERIYA "Is the field
 Two agents, one tool each, from the same server. Neither knows the other exists. Finding
 the field from a place name such as Minneriya is the orchestrator's job, in step 11.
 
+### Step 11 · The orchestrator
+
+The farmer talks to one agent, the orchestrator, in `agents/orchestrator/`. It never measures
+or looks anything up itself. It decides which specialists a question needs and calls them as
+tools. This is LangChain's subagents pattern, also called a supervisor:
+<https://docs.langchain.com/oss/python/langchain/multi-agent/subagents>.
+
+- `tools.py`: each specialist wrapped as a tool: `ask_weather_agent`,
+  `ask_farm_context_agent` and `ask_knowledge_agent`. The docstring is what the orchestrator
+  reads when it chooses, so it says what the specialist does and when to use it. Inside, the
+  tool runs the specialist on the orchestrator's task and returns the specialist's last
+  message. FieldOracle's `CitedAnswer` comes back as text with the passage ids in brackets.
+  If a specialist raises, the tool returns a short failure note instead, so one broken
+  specialist does not end the chat.
+- `prompts.py`: the routing rules from the architecture diagram. Specialists that do not
+  depend on each other are called in the same turn, and LangChain runs them in parallel.
+
+  | Question | Specialists |
+  |---|---|
+  | Knowledge: "What is the urea rate for Bg 352?" | knowledge |
+  | Field state: "Is my Minneriya field stressed?" | farm context and weather |
+  | Decision: "Should I spray this week?" | all three |
+
+- `agent.py`: `build_orchestrator` gives the orchestrator `list_fields`, to find the
+  farmer's field, plus the three specialist tools and a checkpointer.
+
+Only the orchestrator has a checkpointer, so only it remembers the conversation. Each
+specialist starts with an empty message list on every call and sees only the task it was
+given. That keeps each specialist's context small, and it is why a task must name the field.
+
+`build_chat_service` in `dependencies.py` builds every agent once, in the lifespan, with one
+shared chat model. FieldOracle is built a second time without a checkpointer for the
+orchestrator; `/ask` keeps its own. Both search the same way: vector search, then the
+step 07 reranker.
+
+`POST /chat` is async because the MCP tools are:
+
+```bash
+curl -X POST localhost:8000/chat -H "Content-Type: application/json" \
+  -d '{"message": "Is my Minneriya paddy field stressed?"}'
+```
+
+```json
+{
+  "message": "Is my Minneriya paddy field stressed?",
+  "thread_id": "8a1d0c3e-...",
+  "answer": "Your field is less green than two weeks ago: NDVI fell 15.2% ...",
+  "tools_called": ["list_fields", "ask_farm_context_agent", "ask_weather_agent"]
+}
+```
+
+Send `thread_id` back to continue the conversation. `tools_called` lists the orchestrator's
+own calls; the MCP calls a specialist made stay inside that specialist's run.
+
+### Step 12 · Central memory
+
+The diagram's central memory lives in `agents/orchestrator/memory.py`. Not every agent shares
+everything: each kind of memory has one owner and one lifetime.
+
+| Memory | Holds | Lives for | Written by | Read by |
+|---|---|---|---|---|
+| Context, `FarmerContext` | `user_id` | one run | the service | tools and middleware |
+| `messages` | the chat with the farmer | the thread | the orchestrator | the orchestrator only |
+| `requirements` | field, crop, problem, time frame | the thread | `save_requirements` | the specialist tools |
+| `findings` | each specialist's report | one message | the specialist tools | the API response (and the Advisory Agent in step 13) |
+| Store, `("farmers", user_id)` | the farmer's field | across threads | `save_requirements` | `remember_the_farm` |
+
+How it is wired:
+
+- `AgriVibeState` extends `AgentState` with `requirements` and `findings`, and
+  `build_orchestrator` passes `state_schema=AgriVibeState`, `context_schema=FarmerContext`
+  and a `store` to `create_agent`.
+- A tool that needs memory takes `runtime: ToolRuntime[FarmerContext, AgriVibeState]`. The
+  model never sees that argument; LangChain fills it in with `runtime.state`,
+  `runtime.context`, `runtime.store` and `runtime.tool_call_id`.
+- A tool that changes state returns `Command(update=...)`, and the update must include the
+  `ToolMessage` the model will read as the tool's result.
+- `findings` has a reducer, `merge_findings`. The Farm Context and Weather agents run in
+  parallel and finish in the same step; without a reducer LangGraph refuses two writes to one
+  key in one step. An empty dict clears the findings, and the service sends one with every
+  message, so evidence never carries over from the previous question.
+- The specialists still get no messages. `brief` puts the saved requirements above the task,
+  so a specialist knows the field without reading the chat.
+- `remember_the_farm` is `@dynamic_prompt` middleware. Before each model call it looks up
+  this `user_id` in the store and adds the farmer's saved field to the system prompt, so a
+  new conversation already knows it.
+
+`POST /chat` now needs a `user_id` and returns what memory holds:
+
+```bash
+curl -X POST localhost:8000/chat -H "Content-Type: application/json" \
+  -d '{"message": "Is my Minneriya paddy field stressed?", "user_id": "farmer-001"}'
+```
+
+```json
+{
+  "message": "Is my Minneriya paddy field stressed?",
+  "user_id": "farmer-001",
+  "thread_id": "8a1d0c3e-...",
+  "answer": "Your field is less green than two weeks ago ...",
+  "tools_called": ["list_fields", "save_requirements", "ask_farm_context_agent", "ask_weather_agent"],
+  "requirements": {"field_id": "SL-PADDY-MINNERIYA", "crop": "paddy", "problem": "field stress", "timeframe": "now"},
+  "findings": {
+    "farm_context": "SL-PADDY-MINNERIYA: NDVI fell 15.2% over 14 days ...",
+    "weather": "SL-PADDY-MINNERIYA: 112 mm of rain in the last 7 days ..."
+  }
+}
+```
+
+Then leave out `thread_id` and ask "Has it rained on my field?" as the same `user_id`. The
+new conversation uses the saved field without asking.
+
+`InMemorySaver` and `InMemoryStore` forget everything when the app restarts. A production
+app would use database-backed versions, take `user_id` from the login, and check that a
+`thread_id` belongs to that user.
+
+### Step 13 · The Advisory Agent
+
+`agents/advisory/` is the last box in the diagram. It has no tools: everything it may use
+arrives in its message. `ask_advisory_agent` builds that message from central memory with
+`with_findings`: the saved requirements, the decision, and every finding the other
+specialists wrote for this question. The agent answers with a recommendation (go ahead,
+wait, or do not) and one reason per line, each tagged with where it came from.
+
+The tool is `return_direct=True`. When the orchestrator calls it, the run ends and the
+Advisory Agent's answer is the reply, word for word, as in the diagram where the grounded
+answer goes from the Advisory Agent to the farmer. That only works if the orchestrator calls
+it last and on its own, after the evidence is in, which is what its prompt and the tool's
+docstring tell it.
+
+A decision now runs through every agent:
+
+```bash
+curl -X POST localhost:8000/chat -H "Content-Type: application/json" \
+  -d '{"message": "Should I spray fungicide on my Minneriya field this week?", "user_id": "farmer-001"}'
+```
+
+```json
+{
+  "tools_called": [
+    "list_fields", "save_requirements",
+    "ask_farm_context_agent", "ask_weather_agent", "ask_knowledge_agent",
+    "ask_advisory_agent"
+  ],
+  "answer": "Wait. 46 mm of heavy rain is expected in the next 48 hours (weather) ...",
+  "findings": {"farm_context": "...", "weather": "...", "knowledge": "... [paddy-cultivation-guide-a29d87-3]"}
+}
+```
+
+With the FieldSat demo server, try the verification fields too. On `SL-PADDY-WEATHER-FAIL`
+the Weather Agent reports that its data is missing and the Advisory Agent says what to check.
+On `SL-PADDY-POOR` the satellite reading is flagged as unreliable.
+
 ## Using it from the AgriVibe frontend
 
 The AgriVibe Lite frontend (Next.js) keeps all its knowledge in four Markdown files
@@ -351,25 +515,8 @@ pasted into one agent's prompt. FieldOracle replaces that with retrieval:
 - `searches` render as live tool chips, the same way satellite and weather calls show today.
 - Add the frontend's URL to `CORS_ORIGINS` if the browser calls FieldOracle directly.
 
-## Growing into a multi-agent backend
+For the multi-agent chat, call `POST /chat` instead:
 
-AgriVibe runs several agents in a fixed order (intake, field evidence, knowledge,
-advisory). That fits this layout without moving anything:
-
-```
-src/agrivibe/
-├── agents/
-│   ├── fieldoracle/   ← exists
-│   ├── intake/        new: build_intake_agent()
-│   └── advisory/      new: build_advisory_agent()
-├── workflows/
-│   └── advisory.py    new: runs the agents in order, passing typed state between them
-├── service/
-│   └── advising.py    new: AdvisoryService invokes the workflow
-└── api/
-    └── advise.py      new: POST /advise
-```
-
-Each agent stays a package with one build function. The RAG agent can be handed to the
-others as a tool, and `/ask` keeps working on its own.
-
+- Send the signed-in farmer's id as `user_id`, and keep `thread_id` per chat.
+- `tools_called` render as live chips: one per specialist the orchestrator asked.
+- `findings` render as the evidence panel, one card per specialist.
