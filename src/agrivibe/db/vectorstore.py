@@ -28,7 +28,7 @@ def create_vector_store(settings: Settings) -> PineconeVectorStore:
     """
     embeddings = OpenAIEmbeddings(
         model=settings.embedding_model,
-        api_key=settings.openai_api_key.get_secret_value(),
+        api_key=settings.openai_api_key,
     )
 
     pc = Pinecone(api_key=settings.pinecone_api_key.get_secret_value())

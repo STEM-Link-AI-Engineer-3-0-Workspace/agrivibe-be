@@ -113,7 +113,7 @@ class KnowledgeService:
         reranker = self.reranker if rerank else None
         hits = [
             SearchHit(
-                id=doc.id,
+                id=doc.id or "",
                 source=doc.metadata["source"],
                 page=doc.metadata["page"],
                 category=doc.metadata["category"],

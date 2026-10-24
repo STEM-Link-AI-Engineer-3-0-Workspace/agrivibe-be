@@ -17,8 +17,10 @@ class FakeVectorStore(InMemoryVectorStore):
         if isinstance(filter, dict):
             wanted = filter
 
-            def filter(doc):
+            def matches(doc):
                 return all(doc.metadata.get(key) == value for key, value in wanted.items())
+
+            filter = matches
 
         return super().similarity_search_with_score(query, k=k, filter=filter, **kwargs)
 

@@ -21,7 +21,8 @@ from agrivibe.service.knowledge import KnowledgeService
 @lru_cache
 def get_settings() -> Settings:
     """Returns the application settings, loaded once."""
-    return Settings()
+    # The required keys come from .env, which the type checker cannot see.
+    return Settings()  # pyright: ignore[reportCallIssue]
 
 
 @lru_cache
