@@ -3,12 +3,12 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.vectorstores import VectorStore
 from langgraph.types import Checkpointer
 
-from agrivibe.agents.rag.prompts import SYSTEM_PROMPT
-from agrivibe.agents.rag.schemas import CitedAnswer
-from agrivibe.agents.rag.tools import make_search_tool
+from agrivibe.agents.fieldoracle.prompts import SYSTEM_PROMPT
+from agrivibe.agents.fieldoracle.schemas import CitedAnswer
+from agrivibe.agents.fieldoracle.tools import make_search_tool
 
 
-def build_rag_agent(model: BaseChatModel, vector_store: VectorStore, k: int = 4, checkpointer: Checkpointer = None):
+def build_fieldoracle_agent(model: BaseChatModel, vector_store: VectorStore, k: int = 4, checkpointer: Checkpointer = None):
     """Builds the RAG agent: a search tool plus a cited, structured answer.
 
     Args:
@@ -28,5 +28,5 @@ def build_rag_agent(model: BaseChatModel, vector_store: VectorStore, k: int = 4,
         system_prompt=SYSTEM_PROMPT,
         response_format=CitedAnswer,
         checkpointer=checkpointer,
-        name="rag_agent",
+        name="FieldOracle",
     )

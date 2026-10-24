@@ -16,4 +16,5 @@ def create_chat_model(settings: Settings) -> BaseChatModel:
     return init_chat_model(
         settings.chat_model,
         api_key=settings.openai_api_key.get_secret_value(),
+        use_responses_api=True,
     )
