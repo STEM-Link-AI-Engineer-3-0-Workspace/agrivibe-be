@@ -359,8 +359,8 @@ tools. This is LangChain's subagents pattern, also called a supervisor:
   `ask_farm_context_agent` and `ask_knowledge_agent`. The docstring is what the orchestrator
   reads when it chooses, so it says what the specialist does and when to use it. Inside, the
   tool runs the specialist on the orchestrator's task and reads its structured answer
-  (`WeatherReport`, `FieldHealthReport` or `CitedAnswer`) into a finding with two parts: a
-  `summary` to read and the `data` it is based on. The orchestrator reads the summary followed
+  (`FieldReport` or `CitedAnswer`) into a finding with two parts: a `summary` to read and
+  the `data` it is based on. The orchestrator reads the summary followed
   by the data as JSON, so it sees the exact numbers. FieldOracle's summary keeps the passage
   ids in brackets. If a specialist raises, the finding is a short failure note with empty
   data, so one broken specialist does not end the chat.
@@ -432,7 +432,9 @@ How it is wired:
   key in one step. An empty dict clears the findings, and the service sends one with every
   message, so evidence never carries over from the previous question.
 - The specialists still get no messages. `brief` puts the saved requirements above the task,
-  so a specialist knows the field without reading the chat.
+  so a specialist knows the field without reading the chat. The Weather and Farm Context
+  agents also get the saved `field_id` as `FieldContext` (step 09), so FieldSat is always
+  asked about that field. With no saved field, their tools return a note instead of running.
 - `remember_the_farm` is `@dynamic_prompt` middleware. Before each model call it looks up
   this `user_id` in the store and adds the farmer's saved field to the system prompt, so a
   new conversation already knows it.
@@ -455,11 +457,11 @@ curl -X POST localhost:8000/chat -H "Content-Type: application/json" \
   "findings": {
     "farm_context": {
       "summary": "NDVI fell 15.2% over 14 days, from 0.66 to 0.56, and the field is uneven ...",
-      "data": {"field_id": "SL-PADDY-MINNERIYA", "available": true, "trend": "significant_decline", "ndvi_change_percentage": -15.2, "data_quality": "good", "...": "..."}
+      "data": {"field_id": "SL-PADDY-MINNERIYA", "trend": "significant_decline", "ndvi_change_percentage": -15.2, "data_quality": "good", "...": "..."}
     },
     "weather": {
       "summary": "112 mm of rain fell on 5 of the last 7 days ...",
-      "data": {"field_id": "SL-PADDY-MINNERIYA", "available": true, "rainfall_last_7_days_mm": 112.0, "heavy_rain_expected": true, "...": "..."}
+      "data": {"rainfall_last_7_days_mm": 112.0, "heavy_rain_expected": true, "...": "..."}
     }
   }
 }

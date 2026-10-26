@@ -35,7 +35,7 @@ class Finding(TypedDict):
     """One specialist's report: a summary to read, and the data it is based on."""
 
     summary: str
-    data: dict[str, Any]  # the report's typed fields, such as rainfall_last_7_days_mm; empty if it failed
+    data: dict[str, Any]  # FieldSat's reply, or FieldOracle's found and citations; empty if it failed
 
 
 def merge_findings(current: dict[str, Finding], update: dict[str, Finding]) -> dict[str, Finding]:

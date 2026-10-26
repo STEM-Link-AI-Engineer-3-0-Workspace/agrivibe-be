@@ -28,9 +28,8 @@ class Finding(BaseModel):
     summary: str = Field(description="The specialist's report in a few sentences. Knowledge cites passage ids in brackets.")
     data: dict[str, Any] = Field(
         description=(
-            "The report's fields. weather and farm_context: the FieldSat numbers, such as rainfall_last_7_days_mm "
-            "or ndvi_change_percentage, plus field_id and available. knowledge: found and citations. "
-            "Empty if the specialist failed."
+            "weather and farm_context: FieldSat's reply as the server sent it, such as rainfall_last_7_days_mm "
+            "or ndvi_change_percentage. knowledge: found and citations. Empty if the specialist or its tool failed."
         )
     )
 

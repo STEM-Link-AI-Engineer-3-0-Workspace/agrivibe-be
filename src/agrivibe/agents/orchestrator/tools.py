@@ -13,6 +13,7 @@ from langchain.tools import BaseTool, ToolRuntime, tool
 from langgraph.types import Command
 
 from agrivibe.agents.fieldoracle import CitedAnswer
+from agrivibe.agents.fieldsat import FieldContext
 from agrivibe.agents.orchestrator.memory import AgriVibeState, FarmerContext, Finding, Requirements
 
 logger = logging.getLogger(__name__)
@@ -21,7 +22,7 @@ logger = logging.getLogger(__name__)
 Runtime = ToolRuntime[FarmerContext, AgriVibeState]
 
 
-async def run(agent, task: str) -> dict:
+async def run(agent, task: str, context=None) -> dict:
     """Runs a specialist on one task.
 
     The specialist starts with an empty conversation: it sees this task, not the chat
@@ -30,11 +31,12 @@ async def run(agent, task: str) -> dict:
     Args:
         agent: A specialist built by its build function.
         task: The orchestrator's request, written as a message to the specialist.
+        context: The specialist's runtime context, if it takes one.
 
     Returns:
         The specialist's result: its messages, and its `structured_response` if it has one.
     """
-    return await agent.ainvoke({"messages": [{"role": "user", "content": task}]})
+    return await agent.ainvoke({"messages": [{"role": "user", "content": task}]}, context=context)
 
 
 def failed(error: Exception) -> Finding:
@@ -42,18 +44,18 @@ def failed(error: Exception) -> Finding:
     return Finding(summary=f"This agent failed and returned nothing ({error}).", data={})
 
 
-async def ask_for_report(agent, task: str) -> Finding:
-    """Runs a FieldSat specialist and turns its report into a finding.
-
-    The Weather and Farm Context agents answer with a report model (WeatherReport,
-    FieldHealthReport). Its summary is kept as text and every other field as data.
-    """
+async def ask_for_report(agent, task: str, runtime: Runtime) -> Finding:
+    """Runs a FieldSat specialist on the saved field and turns its FieldReport into a finding."""
+    requirements = runtime.state.get("requirements")
+    if not requirements:
+        return Finding(summary="No field is saved yet. Call save_requirements first.", data={})
     try:
-        report = (await run(agent, task))["structured_response"]
+        context = FieldContext(field_id=requirements["field_id"])
+        report = (await run(agent, brief(task, runtime), context))["structured_response"]
     except Exception as error:
         logger.exception("%s failed", agent.name)
         return failed(error)
-    return Finding(summary=report.summary, data=report.model_dump(exclude={"summary"}))
+    return Finding(summary=report.summary, data=report.data or {})
 
 
 def cited_text(answer: CitedAnswer) -> str:
@@ -169,7 +171,7 @@ def make_specialist_tools(weather_agent, farm_context_agent, knowledge_agent, ad
             task: What you need, for example "Rain in the last week and the next 48 hours". The field
                 comes from the saved requirements.
         """
-        return save_finding("weather", await ask_for_report(weather_agent, brief(task, runtime)), runtime)
+        return save_finding("weather", await ask_for_report(weather_agent, task, runtime), runtime)
 
     @tool(parse_docstring=True)
     async def ask_farm_context_agent(task: str, runtime: Runtime) -> Command:
@@ -181,7 +183,7 @@ def make_specialist_tools(weather_agent, farm_context_agent, knowledge_agent, ad
             task: What you need, for example "NDVI trend over the last 14 days". The field comes from
                 the saved requirements.
         """
-        return save_finding("farm_context", await ask_for_report(farm_context_agent, brief(task, runtime)), runtime)
+        return save_finding("farm_context", await ask_for_report(farm_context_agent, task, runtime), runtime)
 
     @tool(parse_docstring=True)
     async def ask_knowledge_agent(question: str, runtime: Runtime) -> Command:

@@ -18,36 +18,6 @@ from tests.fakes import ScriptedChatModel, load_fake_fieldsat_tools
 MINNERIYA = "SL-PADDY-MINNERIYA"
 REQUIREMENTS = {"field_id": MINNERIYA, "crop": "paddy", "problem": "is the field stressed", "timeframe": "now"}
 
-# What the Weather and Farm Context agents answer with: a summary plus FieldSat's numbers.
-WEATHER_REPORT = {
-    "field_id": MINNERIYA,
-    "available": True,
-    "summary": "46 mm of rain expected in 48 hours.",
-    "rainfall_last_7_days_mm": 112.0,
-    "rainy_days_last_7_days": 5,
-    "rainfall_last_48_hours_mm": 38.0,
-    "rainfall_forecast_next_48_hours_mm": 46.0,
-    "average_humidity_last_7_days": 88.0,
-    "heavy_rain_recent": True,
-    "heavy_rain_expected": True,
-}
-FIELD_HEALTH_REPORT = {
-    "field_id": MINNERIYA,
-    "available": True,
-    "summary": "NDVI fell 15.2% in 14 days.",
-    "comparison_days": 14,
-    "current_mean_ndvi": 0.56,
-    "previous_mean_ndvi": 0.66,
-    "ndvi_change_percentage": -15.2,
-    "trend": "significant_decline",
-    "ndvi_standard_deviation": 0.17,
-    "field_uniformity": "uneven",
-    "valid_observations": 4,
-    "average_cloud_coverage_percentage": 11.0,
-    "data_quality": "good",
-}
-
-
 def calls(*tool_calls):
     """One model turn that calls one or more tools. Several calls run in parallel."""
     return AIMessage(
@@ -93,11 +63,11 @@ FIELD_STATE = {
     ],
     "farm_context": [
         calls(("get_satellite_analysis", {"field_id": MINNERIYA, "comparison_days": 14})),
-        calls(("FieldHealthReport", FIELD_HEALTH_REPORT)),
+        AIMessage(content="NDVI fell 15.2% in 14 days."),
     ],
     "weather": [
         calls(("get_weather_context", {"field_id": MINNERIYA})),
-        calls(("WeatherReport", WEATHER_REPORT)),
+        AIMessage(content="46 mm of rain expected in 48 hours."),
     ],
 }
 
@@ -143,7 +113,8 @@ def test_a_failing_specialist_does_not_end_the_chat(client, vector_store):
     use_orchestrator(
         vector_store,
         orchestrator=[
-            calls(("ask_weather_agent", {"task": f"Rain on {MINNERIYA}"})),
+            calls(("save_requirements", REQUIREMENTS)),
+            calls(("ask_weather_agent", {"task": "Rain last week"})),
             AIMessage(content="The weather data is unavailable right now."),
         ],
         weather=[],  # the scripted model has no replies, so the Weather Agent raises
@@ -175,6 +146,22 @@ def test_follow_up_keeps_the_conversation(client, vector_store):
     assert [m.text for m in messages if m.type == "human"] == ["Is my field stressed?", "Minneriya"]
 
 
+def test_a_specialist_needs_a_saved_field(client, vector_store):
+    _, models = use_orchestrator(
+        vector_store,
+        orchestrator=[
+            calls(("ask_weather_agent", {"task": "Rain last week"})),
+            AIMessage(content="Which field do you mean?"),
+        ],
+    )
+
+    body = chat(client, "Has it rained?")
+
+    # The field comes from the saved requirements, so without one the specialist never runs.
+    assert body["findings"]["weather"]["summary"].startswith("No field is saved yet")
+    assert models["weather"].calls == 0
+
+
 # Central memory
 
 
@@ -184,11 +171,11 @@ def test_specialists_read_the_requirements_and_write_findings(client, vector_sto
     body = chat(client, "Is my Minneriya field stressed?")
 
     assert body["requirements"] == REQUIREMENTS
-    # Each finding keeps the specialist's summary, and every other report field as data.
-    without_summary = {key: value for key, value in WEATHER_REPORT.items() if key != "summary"}
-    assert body["findings"]["weather"] == {"summary": "46 mm of rain expected in 48 hours.", "data": without_summary}
+    # Each finding is the specialist's summary, plus FieldSat's reply as data.
+    assert body["findings"]["weather"]["summary"] == "46 mm of rain expected in 48 hours."
+    assert body["findings"]["weather"]["data"]["rainfall_last_7_days_mm"] == 112.0
     assert body["findings"]["farm_context"]["summary"] == "NDVI fell 15.2% in 14 days."
-    assert body["findings"]["farm_context"]["data"]["trend"] == "significant_decline"
+    assert body["findings"]["farm_context"]["data"]["field_id"] == MINNERIYA
     # The Weather Agent saw the saved requirements above the task, not the farmer's chat.
     task = models["weather"].received[0][-1].text
     assert task.startswith(f"Field: {MINNERIYA} (paddy)")
