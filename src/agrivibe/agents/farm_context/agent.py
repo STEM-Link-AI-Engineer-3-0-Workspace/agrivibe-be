@@ -3,7 +3,7 @@ from langchain.tools import BaseTool
 from langchain_core.language_models import BaseChatModel
 
 from agrivibe.agents.farm_context.prompts import SYSTEM_PROMPT
-from agrivibe.agents.farm_context.schemas import FieldHealthReport
+from agrivibe.agents.fieldsat import FieldContext, FieldSatReport
 from agrivibe.core.mcp import pick_tools
 
 
@@ -11,17 +11,18 @@ def build_farm_context_agent(model: BaseChatModel, fieldsat_tools: list[BaseTool
     """Builds the Farm Context Agent: satellite field health for one field, from FieldSat.
 
     Args:
-        model: The chat model that picks the field and writes the report.
-        fieldsat_tools: Every tool the FieldSat server offers. This agent keeps two.
+        model: The chat model that reads the satellite analysis and writes the summary.
+        fieldsat_tools: Every tool the FieldSat server offers. This agent keeps get_satellite_analysis.
 
     Returns:
-        A compiled agent graph. Its result holds a `FieldHealthReport` under
-        `structured_response`. Run it with `ainvoke`, because MCP tools are async.
+        A compiled agent graph. Run it with `ainvoke` and `context=FieldContext(field_id)`,
+        because MCP tools are async. The result holds a `FieldReport` under `structured_response`.
     """
     return create_agent(
         model,
-        tools=pick_tools(fieldsat_tools, "list_fields", "get_satellite_analysis"),
+        tools=pick_tools(fieldsat_tools, "get_satellite_analysis"),
         system_prompt=SYSTEM_PROMPT,
-        response_format=FieldHealthReport,
+        middleware=[FieldSatReport()],
+        context_schema=FieldContext,
         name="farm_context_agent",
     )

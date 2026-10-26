@@ -3,6 +3,7 @@
 import warnings
 
 from fastmcp import FastMCP
+from fastmcp.exceptions import ToolError
 from langchain_core.embeddings import DeterministicFakeEmbedding
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage
@@ -98,6 +99,8 @@ def fake_fieldsat() -> FastMCP:
     @mcp.tool
     def get_weather_context(field_id: str) -> dict:
         """Recent rainfall and the 48-hour rain forecast for one registered field."""
+        if field_id == "SL-PADDY-WEATHER-FAIL":  # FieldSat's demo field whose weather source is down
+            raise ToolError("The weather source is unavailable.")
         return {
             "rainfall_last_7_days_mm": 112.0,
             "rainy_days_last_7_days": 5,

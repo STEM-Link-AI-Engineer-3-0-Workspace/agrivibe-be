@@ -4,8 +4,8 @@ Start FieldSat first, in your Level 6 Lesson 3 repo:
     uv run fieldsat --demo --transport http --port 8001
 
 Then, in this repo:
-    uv run python scripts/try_agent.py weather "How much rain has the Minneriya field had this week?"
-    uv run python scripts/try_agent.py farm_context "Is the Minneriya field greener than two weeks ago?"
+    uv run python scripts/try_agent.py weather SL-PADDY-MINNERIYA "How much rain has the field had this week?"
+    uv run python scripts/try_agent.py farm_context SL-PADDY-MINNERIYA "Is the field greener than two weeks ago?"
 """
 
 import asyncio
@@ -14,6 +14,7 @@ import sys
 from langchain_core.messages import AIMessage, ToolMessage
 
 from agrivibe.agents.farm_context import build_farm_context_agent
+from agrivibe.agents.fieldsat import FieldContext
 from agrivibe.agents.weather import build_weather_agent
 from agrivibe.config import Settings
 from agrivibe.core.llm import create_chat_model
@@ -25,12 +26,15 @@ BUILDERS = {
 }
 
 
-async def main(name, question):
+async def main(name, field_id, question):
     settings = Settings()  # pyright: ignore[reportCallIssue]
     fieldsat_tools = await load_fieldsat_tools(settings.fieldsat_url)
     agent = BUILDERS[name](create_chat_model(settings), fieldsat_tools)
 
-    result = await agent.ainvoke({"messages": [{"role": "user", "content": question}]})
+    result = await agent.ainvoke(
+        {"messages": [{"role": "user", "content": f"Field: {field_id}\n\n{question}"}]},
+        context=FieldContext(field_id=field_id),
+    )
 
     for message in result["messages"]:
         if isinstance(message, AIMessage) and message.tool_calls:
@@ -43,4 +47,4 @@ async def main(name, question):
 
 
 if __name__ == "__main__":
-    asyncio.run(main(sys.argv[1], sys.argv[2]))
+    asyncio.run(main(sys.argv[1], sys.argv[2], sys.argv[3]))

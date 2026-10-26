@@ -178,6 +178,7 @@ src/agrivibe/
 │   └── answering.py   invoke the agent, format the cited answer, collect sources
 ├── agents/            agent layer: knows nothing about HTTP
 │   ├── fieldoracle/   the RAG agent: tool, prompt, output schema
+│   ├── fieldsat.py    what the FieldSat agents share: FieldContext, FieldReport, FieldSatReport
 │   ├── weather/       rain for one field, from FieldSat
 │   └── farm_context/  satellite field health for one field, from FieldSat
 ├── core/              clients shared by every layer
@@ -275,43 +276,46 @@ FieldSat listens on port 8001 because this app uses 8000. If your server runs el
 
 ### Step 09 · The Weather Agent
 
-`agents/weather/` has the same shape as `agents/fieldoracle/`: a prompt, an output schema
-and one build function. `build_weather_agent` takes the chat model and every FieldSat tool,
-and keeps two: `list_fields`, to turn a place name such as Minneriya into a field ID, and
-`get_weather_context`.
+`agents/weather/` has the same shape as `agents/fieldoracle/`: a prompt and one build
+function. `build_weather_agent` takes the chat model and every FieldSat tool, and keeps
+one: `get_weather_context`.
 
-Like FieldOracle's `CitedAnswer`, the answer is structured: `create_agent(...,
-response_format=WeatherReport)` makes the agent finish with a `WeatherReport`, found under
-`structured_response` in the result. It has two parts:
+The agent answers with a `FieldReport` under `structured_response`, with three parts:
 
-- `summary`: a few plain sentences, for a person or another agent to read.
-- The numbers it is based on, copied from FieldSat's `WeatherContext`:
-  `rainfall_last_7_days_mm`, `rainy_days_last_7_days`, `rainfall_last_48_hours_mm`,
-  `rainfall_forecast_next_48_hours_mm`, `average_humidity_last_7_days`, `heavy_rain_recent`
-  and `heavy_rain_expected`. Code reads these directly; nobody parses the summary.
+- `field_id`: the field it was asked about.
+- `summary`: two to four sentences in the agent's own words.
+- `data`: FieldSat's reply, exactly as the server sent it. `None` if the tool failed.
 
-`field_id` says which field it is about. If FieldSat fails, `available` is false, the numbers
-are null and the summary says what is missing.
+The model writes only the summary. It never picks the field and never copies a number,
+so it cannot get either wrong. `agents/fieldsat.py` holds the pieces that make this work:
+
+- `FieldContext(field_id)`: the field, passed with each run as runtime context:
+  `ainvoke({"messages": [...]}, context=FieldContext("SL-PADDY-MINNERIYA"))`.
+- `FieldSatReport`: middleware with two hooks. `awrap_tool_call` runs before every tool
+  call and replaces the `field_id` the model wrote with the one from the context.
+  `after_agent` runs once at the end and builds the `FieldReport` from the context, the
+  agent's last message and FieldSat's last reply.
 
 ```json
 {
   "field_id": "SL-PADDY-MINNERIYA",
-  "available": true,
-  "summary": "112 mm of rain fell on 5 of the last 7 days, 38 mm of it in the last 48 hours. 46 mm more is forecast for the next 48 hours, so heavy rain is expected.",
-  "rainfall_last_7_days_mm": 112.0,
-  "rainy_days_last_7_days": 5,
-  "rainfall_last_48_hours_mm": 38.0,
-  "rainfall_forecast_next_48_hours_mm": 46.0,
-  "average_humidity_last_7_days": 88.0,
-  "heavy_rain_recent": true,
-  "heavy_rain_expected": true
+  "summary": "112 mm of rain fell on 5 of the last 7 days, 38 mm of it in the last 48 hours. Another 46 mm is forecast for the next 48 hours, so heavy rain is expected.",
+  "data": {
+    "rainfall_last_7_days_mm": 112.0,
+    "rainy_days_last_7_days": 5,
+    "rainfall_last_48_hours_mm": 38.0,
+    "rainfall_forecast_next_48_hours_mm": 46.0,
+    "average_humidity_last_7_days": 88.0,
+    "heavy_rain_recent": true,
+    "heavy_rain_expected": true
+  }
 }
 ```
 
 MCP tools are async, so the agent is run with `ainvoke`. Try it before any endpoint uses it:
 
 ```bash
-uv run python scripts/try_agent.py weather "How much rain has the Minneriya field had this week?"
+uv run python scripts/try_agent.py weather SL-PADDY-MINNERIYA "How much rain has the field had this week?"
 ```
 
 The script prints each tool call the agent made, what FieldSat answered, and the report as
@@ -319,23 +323,19 @@ JSON.
 
 ### Step 10 · The Farm Context Agent
 
-`agents/farm_context/` repeats the pattern with the satellite tool: `list_fields` and
-`get_satellite_analysis`. Its prompt fixes the comparison window at 14 days unless the
+`agents/farm_context/` repeats the pattern with `get_satellite_analysis`, and the same
+`FieldSatReport` middleware. Its prompt fixes the comparison window at 14 days unless the
 request names another, puts poor data quality first, and forbids naming a cause: NDVI says
-the crop got less green, not why.
-
-It answers with a `FieldHealthReport`: `field_id`, `available`, a `summary`, the
-`comparison_days` it used, and FieldSat's `SatelliteContext` numbers (`current_mean_ndvi`,
-`previous_mean_ndvi`, `ndvi_change_percentage`, `trend`, `ndvi_standard_deviation`,
-`field_uniformity`, `valid_observations`, `average_cloud_coverage_percentage`,
-`data_quality`). `trend`, `field_uniformity` and `data_quality` are `Literal` types with
-FieldSat's own labels, so the model cannot invent a new one.
+the crop got less green, not why. Its `data` is FieldSat's satellite analysis: NDVI now and
+before, the change and its `trend`, `field_uniformity`, `valid_observations`, cloud cover and
+`data_quality`.
 
 ```bash
-uv run python scripts/try_agent.py farm_context "Is the Minneriya field greener than two weeks ago?"
+uv run python scripts/try_agent.py farm_context SL-PADDY-MINNERIYA "Is the field greener than two weeks ago?"
 ```
 
-Two agents, two tools each, from the same server. Neither knows the other exists.
+Two agents, one tool each, from the same server. Neither knows the other exists. Finding
+the field from a place name such as Minneriya is the orchestrator's job, in step 11.
 
 ## Using it from the AgriVibe frontend
 
