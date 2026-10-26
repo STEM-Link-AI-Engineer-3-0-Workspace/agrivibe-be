@@ -1,5 +1,7 @@
 """Bodies for POST /chat."""
 
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 
@@ -20,6 +22,19 @@ class ChatRequest(BaseModel):
     )
 
 
+class Finding(BaseModel):
+    """What one specialist reported for this message."""
+
+    summary: str = Field(description="The specialist's report in a few sentences. Knowledge cites passage ids in brackets.")
+    data: dict[str, Any] = Field(
+        description=(
+            "The report's fields. weather and farm_context: the FieldSat numbers, such as rainfall_last_7_days_mm "
+            "or ndvi_change_percentage, plus field_id and available. knowledge: found and citations. "
+            "Empty if the specialist failed."
+        )
+    )
+
+
 class ChatResponse(BaseModel):
     """AgriVibe's reply, the tools the orchestrator called, and what central memory holds."""
 
@@ -33,6 +48,6 @@ class ChatResponse(BaseModel):
     requirements: dict[str, str] | None = Field(
         description="What the orchestrator saved about the farmer's need: field_id, crop, problem, timeframe."
     )
-    findings: dict[str, str] = Field(
+    findings: dict[str, Finding] = Field(
         description="What each specialist reported for this message, by name: weather, farm_context, knowledge."
     )

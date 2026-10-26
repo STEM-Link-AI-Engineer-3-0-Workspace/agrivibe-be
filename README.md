@@ -358,10 +358,12 @@ tools. This is LangChain's subagents pattern, also called a supervisor:
 - `tools.py`: each specialist wrapped as a tool: `ask_weather_agent`,
   `ask_farm_context_agent` and `ask_knowledge_agent`. The docstring is what the orchestrator
   reads when it chooses, so it says what the specialist does and when to use it. Inside, the
-  tool runs the specialist on the orchestrator's task and returns the specialist's last
-  message. FieldOracle's `CitedAnswer` comes back as text with the passage ids in brackets.
-  If a specialist raises, the tool returns a short failure note instead, so one broken
-  specialist does not end the chat.
+  tool runs the specialist on the orchestrator's task and reads its structured answer
+  (`WeatherReport`, `FieldHealthReport` or `CitedAnswer`) into a finding with two parts: a
+  `summary` to read and the `data` it is based on. The orchestrator reads the summary followed
+  by the data as JSON, so it sees the exact numbers. FieldOracle's summary keeps the passage
+  ids in brackets. If a specialist raises, the finding is a short failure note with empty
+  data, so one broken specialist does not end the chat.
 - `prompts.py`: the routing rules from the architecture diagram. Specialists that do not
   depend on each other are called in the same turn, and LangChain runs them in parallel.
 
@@ -412,7 +414,7 @@ everything: each kind of memory has one owner and one lifetime.
 | Context, `FarmerContext` | `user_id` | one run | the service | tools and middleware |
 | `messages` | the chat with the farmer | the thread | the orchestrator | the orchestrator only |
 | `requirements` | field, crop, problem, time frame | the thread | `save_requirements` | the specialist tools |
-| `findings` | each specialist's report | one message | the specialist tools | the API response (and the Advisory Agent in step 13) |
+| `findings` | each specialist's `summary` and `data` | one message | the specialist tools | the API response (and the Advisory Agent in step 13) |
 | Store, `("farmers", user_id)` | the farmer's field | across threads | `save_requirements` | `remember_the_farm` |
 
 How it is wired:
@@ -451,8 +453,14 @@ curl -X POST localhost:8000/chat -H "Content-Type: application/json" \
   "tools_called": ["list_fields", "save_requirements", "ask_farm_context_agent", "ask_weather_agent"],
   "requirements": {"field_id": "SL-PADDY-MINNERIYA", "crop": "paddy", "problem": "field stress", "timeframe": "now"},
   "findings": {
-    "farm_context": "SL-PADDY-MINNERIYA: NDVI fell 15.2% over 14 days ...",
-    "weather": "SL-PADDY-MINNERIYA: 112 mm of rain in the last 7 days ..."
+    "farm_context": {
+      "summary": "NDVI fell 15.2% over 14 days, from 0.66 to 0.56, and the field is uneven ...",
+      "data": {"field_id": "SL-PADDY-MINNERIYA", "available": true, "trend": "significant_decline", "ndvi_change_percentage": -15.2, "data_quality": "good", "...": "..."}
+    },
+    "weather": {
+      "summary": "112 mm of rain fell on 5 of the last 7 days ...",
+      "data": {"field_id": "SL-PADDY-MINNERIYA", "available": true, "rainfall_last_7_days_mm": 112.0, "heavy_rain_expected": true, "...": "..."}
+    }
   }
 }
 ```
@@ -493,7 +501,11 @@ curl -X POST localhost:8000/chat -H "Content-Type: application/json" \
     "ask_advisory_agent"
   ],
   "answer": "Wait. 46 mm of heavy rain is expected in the next 48 hours (weather) ...",
-  "findings": {"farm_context": "...", "weather": "...", "knowledge": "... [paddy-cultivation-guide-a29d87-3]"}
+  "findings": {
+    "farm_context": {"summary": "...", "data": {"...": "..."}},
+    "weather": {"summary": "...", "data": {"...": "..."}},
+    "knowledge": {"summary": "... [paddy-cultivation-guide-a29d87-3]", "data": {"found": true, "citations": ["paddy-cultivation-guide-a29d87-3"]}}
+  }
 }
 ```
 
@@ -519,4 +531,5 @@ For the multi-agent chat, call `POST /chat` instead:
 
 - Send the signed-in farmer's id as `user_id`, and keep `thread_id` per chat.
 - `tools_called` render as live chips: one per specialist the orchestrator asked.
-- `findings` render as the evidence panel, one card per specialist.
+- `findings` render as the evidence panel, one card per specialist: the `summary` as text,
+  and `data` for the numbers and badges (rain in mm, NDVI change, data quality).

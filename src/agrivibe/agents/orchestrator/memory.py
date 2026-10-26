@@ -9,7 +9,7 @@
 """
 
 from dataclasses import dataclass
-from typing import Annotated, NotRequired, TypedDict
+from typing import Annotated, Any, NotRequired, TypedDict
 
 from langchain.agents import AgentState
 from langchain.agents.middleware import ModelRequest, dynamic_prompt
@@ -31,7 +31,14 @@ class Requirements(TypedDict):
     timeframe: str
 
 
-def merge_findings(current: dict[str, str], update: dict[str, str]) -> dict[str, str]:
+class Finding(TypedDict):
+    """One specialist's report: a summary to read, and the data it is based on."""
+
+    summary: str
+    data: dict[str, Any]  # the report's typed fields, such as rainfall_last_7_days_mm; empty if it failed
+
+
+def merge_findings(current: dict[str, Finding], update: dict[str, Finding]) -> dict[str, Finding]:
     """Combines the findings that specialists write.
 
     Specialists called in parallel finish in the same step, each under its own key, so
@@ -48,7 +55,7 @@ class AgriVibeState(AgentState):
     """The orchestrator's state: its messages, plus the shared workflow state."""
 
     requirements: NotRequired[Requirements]
-    findings: Annotated[dict[str, str], merge_findings]
+    findings: Annotated[dict[str, Finding], merge_findings]
 
 
 @dynamic_prompt

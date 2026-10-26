@@ -18,6 +18,35 @@ from tests.fakes import ScriptedChatModel, load_fake_fieldsat_tools
 MINNERIYA = "SL-PADDY-MINNERIYA"
 REQUIREMENTS = {"field_id": MINNERIYA, "crop": "paddy", "problem": "is the field stressed", "timeframe": "now"}
 
+# What the Weather and Farm Context agents answer with: a summary plus FieldSat's numbers.
+WEATHER_REPORT = {
+    "field_id": MINNERIYA,
+    "available": True,
+    "summary": "46 mm of rain expected in 48 hours.",
+    "rainfall_last_7_days_mm": 112.0,
+    "rainy_days_last_7_days": 5,
+    "rainfall_last_48_hours_mm": 38.0,
+    "rainfall_forecast_next_48_hours_mm": 46.0,
+    "average_humidity_last_7_days": 88.0,
+    "heavy_rain_recent": True,
+    "heavy_rain_expected": True,
+}
+FIELD_HEALTH_REPORT = {
+    "field_id": MINNERIYA,
+    "available": True,
+    "summary": "NDVI fell 15.2% in 14 days.",
+    "comparison_days": 14,
+    "current_mean_ndvi": 0.56,
+    "previous_mean_ndvi": 0.66,
+    "ndvi_change_percentage": -15.2,
+    "trend": "significant_decline",
+    "ndvi_standard_deviation": 0.17,
+    "field_uniformity": "uneven",
+    "valid_observations": 4,
+    "average_cloud_coverage_percentage": 11.0,
+    "data_quality": "good",
+}
+
 
 def calls(*tool_calls):
     """One model turn that calls one or more tools. Several calls run in parallel."""
@@ -64,11 +93,11 @@ FIELD_STATE = {
     ],
     "farm_context": [
         calls(("get_satellite_analysis", {"field_id": MINNERIYA, "comparison_days": 14})),
-        AIMessage(content=f"{MINNERIYA}: NDVI fell 15.2%."),
+        calls(("FieldHealthReport", FIELD_HEALTH_REPORT)),
     ],
     "weather": [
         calls(("get_weather_context", {"field_id": MINNERIYA})),
-        AIMessage(content=f"{MINNERIYA}: 46 mm of rain expected in 48 hours."),
+        calls(("WeatherReport", WEATHER_REPORT)),
     ],
 }
 
@@ -102,7 +131,12 @@ def test_knowledge_question_returns_fieldoracle_citations(client, vector_store):
     body = chat(client, "When do subsidy claims close?")
 
     assert body["tools_called"] == ["ask_knowledge_agent"]
-    assert body["findings"] == {"knowledge": f"Claims close on 15 November 2026. [{first}]"}
+    assert body["findings"] == {
+        "knowledge": {
+            "summary": f"Claims close on 15 November 2026. [{first}]",
+            "data": {"found": True, "citations": [first]},
+        }
+    }
 
 
 def test_a_failing_specialist_does_not_end_the_chat(client, vector_store):
@@ -118,7 +152,8 @@ def test_a_failing_specialist_does_not_end_the_chat(client, vector_store):
     body = chat(client, "Has it rained on my Minneriya field?")
 
     assert body["answer"] == "The weather data is unavailable right now."
-    assert body["findings"]["weather"].startswith("This agent failed")
+    assert body["findings"]["weather"]["summary"].startswith("This agent failed")
+    assert body["findings"]["weather"]["data"] == {}
 
 
 def test_follow_up_keeps_the_conversation(client, vector_store):
@@ -149,10 +184,11 @@ def test_specialists_read_the_requirements_and_write_findings(client, vector_sto
     body = chat(client, "Is my Minneriya field stressed?")
 
     assert body["requirements"] == REQUIREMENTS
-    assert body["findings"] == {
-        "farm_context": f"{MINNERIYA}: NDVI fell 15.2%.",
-        "weather": f"{MINNERIYA}: 46 mm of rain expected in 48 hours.",
-    }
+    # Each finding keeps the specialist's summary, and every other report field as data.
+    without_summary = {key: value for key, value in WEATHER_REPORT.items() if key != "summary"}
+    assert body["findings"]["weather"] == {"summary": "46 mm of rain expected in 48 hours.", "data": without_summary}
+    assert body["findings"]["farm_context"]["summary"] == "NDVI fell 15.2% in 14 days."
+    assert body["findings"]["farm_context"]["data"]["trend"] == "significant_decline"
     # The Weather Agent saw the saved requirements above the task, not the farmer's chat.
     task = models["weather"].received[0][-1].text
     assert task.startswith(f"Field: {MINNERIYA} (paddy)")
@@ -174,7 +210,9 @@ def test_a_new_message_clears_findings_but_keeps_requirements(client, vector_sto
     first = chat(client, "Is my Minneriya field stressed?")
     second = chat(client, "When is the first top dressing due?", thread_id=first["thread_id"])
 
-    assert second["findings"] == {"knowledge": "The knowledge base does not cover this."}
+    assert second["findings"] == {
+        "knowledge": {"summary": "The knowledge base does not cover this.", "data": {"found": False, "citations": []}}
+    }
     assert second["requirements"] == REQUIREMENTS
 
 
@@ -231,6 +269,9 @@ def test_a_decision_ends_with_the_advisory_agent(client, vector_store):
     # The Advisory Agent was sent the decision and all three findings from central memory.
     sent = models["advisory"].received[0][-1].text
     assert "Decision to make: Should the farmer spray fungicide this week?" in sent
-    assert f"farm_context:\n{MINNERIYA}: NDVI fell 15.2%." in sent
-    assert f"weather:\n{MINNERIYA}: 46 mm" in sent
+    # Each finding arrives as its summary, then its data as JSON.
+    assert "farm_context:\nNDVI fell 15.2% in 14 days.\nData: {" in sent
+    assert '"ndvi_change_percentage": -15.2' in sent
+    assert "weather:\n46 mm of rain expected in 48 hours.\nData: {" in sent
+    assert '"heavy_rain_expected": true' in sent
     assert f"knowledge:\nDo not spray before rain. [{passage}]" in sent
