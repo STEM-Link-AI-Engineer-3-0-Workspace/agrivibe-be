@@ -88,15 +88,25 @@ def fake_fieldsat() -> FastMCP:
             "previous_mean_ndvi": 0.66,
             "ndvi_change_percentage": -15.2,
             "trend": "significant_decline",
+            "ndvi_standard_deviation": 0.17,
             "field_uniformity": "uneven",
             "valid_observations": 4,
+            "average_cloud_coverage_percentage": 11.0,
             "data_quality": "good",
         }
 
     @mcp.tool
     def get_weather_context(field_id: str) -> dict:
         """Recent rainfall and the 48-hour rain forecast for one registered field."""
-        return {"rainfall_last_7_days_mm": 112.0, "rainfall_forecast_next_48_hours_mm": 46.0, "heavy_rain_expected": True}
+        return {
+            "rainfall_last_7_days_mm": 112.0,
+            "rainy_days_last_7_days": 5,
+            "rainfall_last_48_hours_mm": 38.0,
+            "rainfall_forecast_next_48_hours_mm": 46.0,
+            "average_humidity_last_7_days": 88.0,
+            "heavy_rain_recent": True,
+            "heavy_rain_expected": True,
+        }
 
     return mcp
 

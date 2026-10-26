@@ -3,6 +3,7 @@ from langchain.tools import BaseTool
 from langchain_core.language_models import BaseChatModel
 
 from agrivibe.agents.weather.prompts import SYSTEM_PROMPT
+from agrivibe.agents.weather.schemas import WeatherReport
 from agrivibe.core.mcp import pick_tools
 
 
@@ -14,12 +15,14 @@ def build_weather_agent(model: BaseChatModel, fieldsat_tools: list[BaseTool]):
         fieldsat_tools: Every tool the FieldSat server offers. This agent keeps two.
 
     Returns:
-        A compiled agent graph. Its last message is the weather report. Run it with
-        `ainvoke`: MCP tools are async, so `invoke` cannot call them.
+        A compiled agent graph. Its result holds a `WeatherReport` under
+        `structured_response`. Run it with `ainvoke`: MCP tools are async, so `invoke`
+        cannot call them.
     """
     return create_agent(
         model,
         tools=pick_tools(fieldsat_tools, "list_fields", "get_weather_context"),
         system_prompt=SYSTEM_PROMPT,
+        response_format=WeatherReport,
         name="weather_agent",
     )

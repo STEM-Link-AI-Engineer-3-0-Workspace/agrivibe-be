@@ -39,7 +39,7 @@ async def main(name, question):
         if isinstance(message, ToolMessage):
             print("FieldSat answered:", message.name, message.status)
     print()
-    print(result["messages"][-1].text)
+    print(result["structured_response"].model_dump_json(indent=2))
 
 
 if __name__ == "__main__":
