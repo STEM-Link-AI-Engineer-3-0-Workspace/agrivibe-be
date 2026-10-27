@@ -18,7 +18,7 @@ from agrivibe.agents.fieldsat import FieldContext
 from agrivibe.agents.weather import build_weather_agent
 from agrivibe.config import Settings
 from agrivibe.core.llm import create_chat_model
-from agrivibe.core.mcp import load_fieldsat_tools
+from agrivibe.core.mcp import load_fieldsat
 
 BUILDERS = {
     "weather": build_weather_agent,
@@ -28,8 +28,8 @@ BUILDERS = {
 
 async def main(name, field_id, question):
     settings = Settings()  # pyright: ignore[reportCallIssue]
-    fieldsat_tools = await load_fieldsat_tools(settings.fieldsat_url)
-    agent = BUILDERS[name](create_chat_model(settings), fieldsat_tools)
+    fieldsat = await load_fieldsat(settings.fieldsat_url)
+    agent = BUILDERS[name](create_chat_model(settings), fieldsat)
 
     result = await agent.ainvoke(
         {"messages": [{"role": "user", "content": f"Field: {field_id}\n\n{question}"}]},
