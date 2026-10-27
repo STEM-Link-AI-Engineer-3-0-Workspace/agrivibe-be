@@ -1,7 +1,5 @@
 """Stand-ins for OpenAI, Pinecone and FieldSat, so the tests run offline and for free."""
 
-import warnings
-
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 from langchain_core.embeddings import DeterministicFakeEmbedding
@@ -9,10 +7,9 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 from langchain_core.vectorstores import InMemoryVectorStore
+from pydantic import Field
 
-with warnings.catch_warnings():
-    warnings.simplefilter("ignore")
-    from langchain.mcp import MCPAdapter
+from agrivibe.core.mcp import FieldSat, load_fieldsat
 
 
 class FakeVectorStore(InMemoryVectorStore):
@@ -38,6 +35,7 @@ class ScriptedChatModel(BaseChatModel):
 
     replies: list[AIMessage]
     calls: int = 0
+    received: list = Field(default_factory=list)  # the messages sent on each call, for tests to read
 
     @property
     def _llm_type(self) -> str:
@@ -47,6 +45,7 @@ class ScriptedChatModel(BaseChatModel):
         return self
 
     def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+        self.received.append(messages)
         reply = self.replies[self.calls]
         self.calls += 1
         return ChatResult(generations=[ChatGeneration(message=reply)])
@@ -67,13 +66,16 @@ class FakeReranker:
         return [float(sum(word in doc.page_content.lower() for word in words)) for doc in docs]
 
 
+FAKE_FIELDSAT_INSTRUCTIONS = "Call list_fields to find a field ID."
+
+
 def fake_fieldsat() -> FastMCP:
     """A stand-in for the FieldSat MCP server: the same three tools, fixed numbers.
 
     MCPAdapter connects to it in memory, so tests need no server process. The numbers
     are FieldSat's demo values for the Minneriya field.
     """
-    mcp = FastMCP("FieldSat (test)")
+    mcp = FastMCP("FieldSat (test)", instructions=FAKE_FIELDSAT_INSTRUCTIONS)
 
     @mcp.tool
     def list_fields() -> dict:
@@ -114,7 +116,6 @@ def fake_fieldsat() -> FastMCP:
     return mcp
 
 
-async def load_fake_fieldsat_tools() -> list:
-    """The fake server's tools, exactly as MCPAdapter hands them to an agent."""
-    async with MCPAdapter(fake_fieldsat()) as adapter:
-        return await adapter.list_tools()
+async def load_fake_fieldsat() -> FieldSat:
+    """The fake server's tools and instructions, read by the app's own load_fieldsat."""
+    return await load_fieldsat(fake_fieldsat())

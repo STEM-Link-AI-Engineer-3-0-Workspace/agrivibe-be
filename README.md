@@ -262,6 +262,13 @@ server for its tools with `MCPAdapter` (from `langchain[mcp]`) and gets back ord
 LangChain tools, with the names, descriptions and argument schemas the server published.
 `pick_tools` gives each agent only the tools it needs.
 
+How to use the tools is the server's job, not ours: only the server knows when its tools
+change. So no agent prompt here names a tool, the order to call them in, or an argument value.
+`load_fieldsat` returns a `FieldSat` with the tools and the `instructions` the server sends
+when a session starts (such as "Call list_fields to find a field ID"), and
+`fieldsat.prompt(SYSTEM_PROMPT)` adds those instructions to the end of every FieldSat agent's
+prompt. Our prompts keep only what is ours: what each agent reports, and how.
+
 Asking for the tools is async, so it happens in the app's `lifespan` in `main.py`, once at
 startup. FieldSat is required in the same way as the API keys: if the server cannot be
 reached, the app refuses to start and tells you how to start it. With FieldSat running,
@@ -277,8 +284,8 @@ FieldSat listens on port 8001 because this app uses 8000. If your server runs el
 ### Step 09 · The Weather Agent
 
 `agents/weather/` has the same shape as `agents/fieldoracle/`: a prompt and one build
-function. `build_weather_agent` takes the chat model and every FieldSat tool, and keeps
-one: `get_weather_context`.
+function. `build_weather_agent` takes the chat model and the `FieldSat` from startup, keeps
+one tool, `get_weather_context`, and ends its prompt with the server's instructions.
 
 The agent answers with a `FieldReport` under `structured_response`, with three parts:
 
@@ -324,8 +331,8 @@ JSON.
 ### Step 10 · The Farm Context Agent
 
 `agents/farm_context/` repeats the pattern with `get_satellite_analysis`, and the same
-`FieldSatReport` middleware. Its prompt fixes the comparison window at 14 days unless the
-request names another, puts poor data quality first, and forbids naming a cause: NDVI says
+`FieldSatReport` middleware. Its prompt asks for the last 14 days against the 14 before
+unless the request names another period, puts an unreliable reading first, and forbids naming a cause: NDVI says
 the crop got less green, not why. Its `data` is FieldSat's satellite analysis: NDVI now and
 before, the change and its `trend`, `field_uniformity`, `valid_observations`, cloud cover and
 `data_quality`.
