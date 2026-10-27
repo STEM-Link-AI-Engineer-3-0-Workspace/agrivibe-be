@@ -1,5 +1,4 @@
 from langchain.agents import create_agent
-from langchain.tools import BaseTool
 from langchain_core.language_models import BaseChatModel
 from langgraph.store.base import BaseStore
 from langgraph.types import Checkpointer
@@ -7,12 +6,12 @@ from langgraph.types import Checkpointer
 from agrivibe.agents.orchestrator.memory import AgriVibeState, FarmerContext, remember_the_farm
 from agrivibe.agents.orchestrator.prompts import SYSTEM_PROMPT
 from agrivibe.agents.orchestrator.tools import make_specialist_tools, save_requirements
-from agrivibe.core.mcp import pick_tools
+from agrivibe.core.mcp import FieldSat, pick_tools
 
 
 def build_orchestrator(
     model: BaseChatModel,
-    fieldsat_tools: list[BaseTool],
+    fieldsat: FieldSat,
     weather_agent,
     farm_context_agent,
     knowledge_agent,
@@ -27,7 +26,8 @@ def build_orchestrator(
 
     Args:
         model: The chat model that decides which specialists to call and writes the reply.
-        fieldsat_tools: Every FieldSat tool. The orchestrator keeps list_fields, to find the farmer's field.
+        fieldsat: The FieldSat server's tools and instructions. The orchestrator keeps list_fields,
+            to find the farmer's field, and its prompt ends with the server's instructions.
         weather_agent: Built by build_weather_agent.
         farm_context_agent: Built by build_farm_context_agent.
         knowledge_agent: Built by build_fieldoracle_agent, without a checkpointer.
@@ -40,14 +40,14 @@ def build_orchestrator(
         A compiled agent graph. Run it with `ainvoke`, a `thread_id` and a `FarmerContext`.
     """
     tools = [
-        *pick_tools(fieldsat_tools, "list_fields"),
+        *pick_tools(fieldsat.tools, "list_fields"),
         save_requirements,
         *make_specialist_tools(weather_agent, farm_context_agent, knowledge_agent, advisory_agent),
     ]
     return create_agent(
         model,
         tools=tools,
-        system_prompt=SYSTEM_PROMPT,
+        system_prompt=fieldsat.prompt(SYSTEM_PROMPT),
         middleware=[remember_the_farm],
         state_schema=AgriVibeState,
         context_schema=FarmerContext,

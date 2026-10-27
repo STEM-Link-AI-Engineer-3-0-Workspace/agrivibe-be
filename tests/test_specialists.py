@@ -5,7 +5,7 @@ from langchain_core.messages import AIMessage
 from agrivibe.agents.farm_context import build_farm_context_agent
 from agrivibe.agents.fieldsat import FieldContext
 from agrivibe.agents.weather import build_weather_agent
-from tests.fakes import ScriptedChatModel, load_fake_fieldsat_tools
+from tests.fakes import ScriptedChatModel, load_fake_fieldsat
 
 MINNERIYA = "SL-PADDY-MINNERIYA"
 
@@ -16,7 +16,7 @@ def tool_call(name, args):
 
 def report(build, replies, field_id=MINNERIYA):
     """Runs a specialist with scripted replies and returns its FieldReport."""
-    agent = build(ScriptedChatModel(replies=replies), asyncio.run(load_fake_fieldsat_tools()))
+    agent = build(ScriptedChatModel(replies=replies), asyncio.run(load_fake_fieldsat()))
     result = asyncio.run(
         agent.ainvoke({"messages": [{"role": "user", "content": "Report"}]}, context=FieldContext(field_id))
     )

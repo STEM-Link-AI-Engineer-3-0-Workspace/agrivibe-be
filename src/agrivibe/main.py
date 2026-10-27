@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from agrivibe.api import ask, chat, knowledge
-from agrivibe.core.mcp import load_fieldsat_tools
+from agrivibe.core.mcp import load_fieldsat
 from agrivibe.dependencies import build_chat_service, get_settings
 
 # Print our own INFO lines, such as how long each rerank took. Libraries stay at WARNING.
@@ -22,9 +22,9 @@ async def lifespan(app: FastAPI):
     the app refuses to start if the server cannot be reached.
     """
     settings = get_settings()
-    fieldsat_tools = await load_fieldsat_tools(settings.fieldsat_url)
-    print("FieldSat tools:", ", ".join(tool.name for tool in fieldsat_tools))
-    app.state.chat_service = build_chat_service(settings, fieldsat_tools)
+    fieldsat = await load_fieldsat(settings.fieldsat_url)
+    print("FieldSat tools:", ", ".join(tool.name for tool in fieldsat.tools))
+    app.state.chat_service = build_chat_service(settings, fieldsat)
     yield
 
 

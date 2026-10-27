@@ -13,7 +13,7 @@ from agrivibe.dependencies import get_chat_service
 from agrivibe.main import app
 from agrivibe.service.chatting import ChatService
 from tests.conftest import upload
-from tests.fakes import ScriptedChatModel, load_fake_fieldsat_tools
+from tests.fakes import ScriptedChatModel, load_fake_fieldsat
 
 MINNERIYA = "SL-PADDY-MINNERIYA"
 REQUIREMENTS = {"field_id": MINNERIYA, "crop": "paddy", "problem": "is the field stressed", "timeframe": "now"}
@@ -34,12 +34,12 @@ def use_orchestrator(vector_store, **replies):
     """
     names = ["orchestrator", "weather", "farm_context", "knowledge", "advisory"]
     models = {name: ScriptedChatModel(replies=list(replies.get(name, []))) for name in names}
-    tools = asyncio.run(load_fake_fieldsat_tools())
+    fieldsat = asyncio.run(load_fake_fieldsat())
     agent = build_orchestrator(
         models["orchestrator"],
-        tools,
-        build_weather_agent(models["weather"], tools),
-        build_farm_context_agent(models["farm_context"], tools),
+        fieldsat,
+        build_weather_agent(models["weather"], fieldsat),
+        build_farm_context_agent(models["farm_context"], fieldsat),
         build_fieldoracle_agent(models["knowledge"], vector_store),
         build_advisory_agent(models["advisory"]),
         checkpointer=InMemorySaver(),
