@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -25,5 +27,11 @@ class Settings(BaseSettings):
     chunk_size: int = 1000
     chunk_overlap: int = 150
     search_k: int = 4
+
+    # Two-stage retrieval: fetch RERANK_CANDIDATES chunks, re-score them with a
+    # cross-encoder and keep the best SEARCH_K. "none" skips the second stage.
+    reranker: Literal["pinecone", "none"] = "pinecone"
+    rerank_model: str = "bge-reranker-v2-m3"
+    rerank_candidates: int = 20
 
     cors_origins: list[str] = ["http://localhost:3000"]

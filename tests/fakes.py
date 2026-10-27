@@ -17,8 +17,10 @@ class FakeVectorStore(InMemoryVectorStore):
         if isinstance(filter, dict):
             wanted = filter
 
-            def filter(doc):
+            def matches(doc):
                 return all(doc.metadata.get(key) == value for key, value in wanted.items())
+
+            filter = matches
 
         return super().similarity_search_with_score(query, k=k, filter=filter, **kwargs)
 
@@ -40,3 +42,18 @@ class ScriptedChatModel(BaseChatModel):
         reply = self.replies[self.calls]
         self.calls += 1
         return ChatResult(generations=[ChatGeneration(message=reply)])
+
+
+class FakeReranker:
+    """Stands in for the cross-encoder. A chunk scores one point per query word it contains."""
+
+    kind = "fake"
+
+    def __init__(self, candidates=20):
+        self.candidates = candidates
+        self.calls = 0
+
+    def score(self, query, docs):
+        self.calls += 1
+        words = set(query.lower().split())
+        return [float(sum(word in doc.page_content.lower() for word in words)) for doc in docs]

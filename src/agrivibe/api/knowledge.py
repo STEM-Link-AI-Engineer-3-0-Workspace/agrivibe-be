@@ -15,15 +15,16 @@ Service = Annotated[KnowledgeService, Depends(get_knowledge_service)]
 @router.post("/documents", status_code=201)
 def index_document(file: UploadFile, category: Annotated[Category, Form()], service: Service) -> IndexResponse:
     """Upload a PDF. It is split into chunks, embedded, and stored in Pinecone."""
-    if not (file.filename or "").lower().endswith(".pdf"):
+    filename = file.filename or ""
+    if not filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=415, detail="Only PDF files can be indexed.")
     try:
-        return service.index_pdf(file.filename, file.file.read(), category)
+        return service.index_pdf(filename, file.file.read(), category)
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
 
 
 @router.post("/search")
 def search(request: SearchRequest, service: Service) -> SearchResponse:
-    """Plain vector search, no model involved. Useful for checking what retrieval returns."""
-    return service.search(request.query, request.k, request.category)
+    """Vector search, then rerank. No chat model involved. Useful for checking what retrieval returns."""
+    return service.search(request.query, request.k, request.category, request.rerank)

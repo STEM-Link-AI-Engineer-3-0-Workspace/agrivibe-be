@@ -1,8 +1,14 @@
+import logging
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from agrivibe.api import ask, knowledge
 from agrivibe.dependencies import get_settings
+
+# Print our own INFO lines, such as how long each rerank took. Libraries stay at WARNING.
+logging.basicConfig(format="%(levelname)s:     %(name)s: %(message)s")
+logging.getLogger("agrivibe").setLevel(logging.INFO)
 
 app = FastAPI(
     title="FieldOracle",

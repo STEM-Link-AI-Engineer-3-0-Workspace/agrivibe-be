@@ -2,6 +2,7 @@ from langchain.tools import BaseTool, tool
 from langchain_core.documents import Document
 from langchain_core.vectorstores import VectorStore
 
+from agrivibe.core.reranker import Reranker
 from agrivibe.db.vectorstore import Category, search_chunks
 
 
@@ -25,12 +26,13 @@ def format_passages(docs: list[Document]) -> str:
     return "\n\n".join(blocks)
 
 
-def make_search_tool(vector_store: VectorStore, k: int) -> BaseTool:
+def make_search_tool(vector_store: VectorStore, k: int, reranker: Reranker | None = None) -> BaseTool:
     """Wraps the vector store search as a tool the agent can call.
 
     Args:
         vector_store: The store to search.
         k: The number of passages each search returns.
+        reranker: Re-scores the vector hits before the best k are kept. None turns reranking off.
 
     Returns:
         The `search_knowledge` tool.
@@ -48,9 +50,9 @@ def make_search_tool(vector_store: VectorStore, k: int) -> BaseTool:
         Returns:
             The passages as text for the model, and the documents themselves as the artifact.
         """
-        docs = [doc for doc, _score in search_chunks(vector_store, query, k, category)]
-        # The model reads the text. The documents ride along as the artifact,
-        # so the service can return the cited passages without searching again.
+        docs = [doc for doc, _score in search_chunks(vector_store, query, k, category, reranker)]
+        # The model reads the text. The documents ride along as the artifact, in reranked
+        # order, so the service can return the cited passages without searching again.
         return format_passages(docs), docs
 
     return search_knowledge
