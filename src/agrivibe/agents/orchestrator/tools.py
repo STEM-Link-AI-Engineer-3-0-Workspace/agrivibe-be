@@ -62,7 +62,7 @@ def save_requirements(
     """Save what the farmer needs. Call it once you know the field, before you ask a specialist about it.
 
     Args:
-        field_id: The field's ID from list_fields, for example SL-PADDY-MINNERIYA.
+        field_id: The field's ID, exactly as FieldSat gives it, for example SL-PADDY-MINNERIYA.
         crop: The crop on the field, for example paddy.
         problem: The farmer's question or problem, in a few words.
         timeframe: The period it is about, for example "this week". Use "now" if the farmer gave none.

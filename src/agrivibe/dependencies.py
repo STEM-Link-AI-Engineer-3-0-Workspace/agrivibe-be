@@ -7,7 +7,6 @@ functions with fakes through app.dependency_overrides.
 from functools import lru_cache
 
 from fastapi import Request
-from langchain.tools import BaseTool
 from langchain_pinecone import PineconeVectorStore
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.store.memory import InMemoryStore
@@ -19,6 +18,7 @@ from agrivibe.agents.orchestrator import build_orchestrator
 from agrivibe.agents.weather import build_weather_agent
 from agrivibe.config import Settings
 from agrivibe.core.llm import create_chat_model
+from agrivibe.core.mcp import FieldSat
 from agrivibe.core.reranker import Reranker
 from agrivibe.db.vectorstore import create_vector_store
 from agrivibe.service.answering import AnswerService
@@ -70,7 +70,7 @@ def get_answer_service() -> AnswerService:
     return AnswerService(rag_agent)
 
 
-def build_chat_service(settings: Settings, fieldsat_tools: list[BaseTool]) -> ChatService:
+def build_chat_service(settings: Settings, fieldsat: FieldSat) -> ChatService:
     """Builds the specialists and the orchestrator that calls them.
 
     Called once, from the lifespan in main.py: the FieldSat tools are only known after
@@ -78,14 +78,14 @@ def build_chat_service(settings: Settings, fieldsat_tools: list[BaseTool]) -> Ch
 
     Args:
         settings: Application settings.
-        fieldsat_tools: The tools loaded from the FieldSat MCP server.
+        fieldsat: The tools and instructions loaded from the FieldSat MCP server.
 
     Returns:
         The service behind POST /chat.
     """
     model = create_chat_model(settings)
-    weather_agent = build_weather_agent(model, fieldsat_tools)
-    farm_context_agent = build_farm_context_agent(model, fieldsat_tools)
+    weather_agent = build_weather_agent(model, fieldsat)
+    farm_context_agent = build_farm_context_agent(model, fieldsat)
     # A second FieldOracle, without a checkpointer: as a specialist it starts fresh on every call.
     # It searches the same way /ask does: vector search, then the cross-encoder.
     knowledge_agent = build_fieldoracle_agent(model, get_vector_store(), k=settings.search_k, reranker=get_reranker())
@@ -94,7 +94,7 @@ def build_chat_service(settings: Settings, fieldsat_tools: list[BaseTool]) -> Ch
     # In production they would be database-backed (Postgres, Redis).
     orchestrator = build_orchestrator(
         model,
-        fieldsat_tools,
+        fieldsat,
         weather_agent,
         farm_context_agent,
         knowledge_agent,

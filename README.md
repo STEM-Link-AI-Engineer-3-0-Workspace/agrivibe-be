@@ -381,7 +381,8 @@ tools. This is LangChain's subagents pattern, also called a supervisor:
   | Decision: "Should I spray this week?" | all three |
 
 - `agent.py`: `build_orchestrator` gives the orchestrator `list_fields`, to find the
-  farmer's field, plus the three specialist tools and a checkpointer.
+  farmer's field, plus the three specialist tools and a checkpointer. Like the specialists,
+  its prompt ends with FieldSat's instructions, which say how to find a field ID.
 
 Only the orchestrator has a checkpointer, so only it remembers the conversation. Each
 specialist starts with an empty message list on every call and sees only the task it was
