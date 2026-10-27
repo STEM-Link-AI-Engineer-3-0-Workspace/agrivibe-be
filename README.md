@@ -477,9 +477,9 @@ app would use database-backed versions, take `user_id` from the login, and check
 ### Step 13 · The Advisory Agent
 
 `agents/advisory/` is the last box in the diagram. It has no tools: everything it may use
-arrives in its message. `ask_advisory_agent` builds that message from central memory with
-`with_findings`: the saved requirements, the decision, and every finding the other
-specialists wrote for this question. The agent answers with a recommendation (go ahead,
+arrives in its message. `ask_advisory_agent` builds that message from central memory: the
+saved requirements, the decision, and every finding the other specialists wrote for this
+question. The agent answers with a recommendation (go ahead,
 wait, or do not) and one reason per line, each tagged with where it came from.
 
 The tool is `return_direct=True`. When the orchestrator calls it, the run ends and the
