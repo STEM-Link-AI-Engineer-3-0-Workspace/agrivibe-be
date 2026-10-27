@@ -515,6 +515,39 @@ With the FieldSat demo server, try the verification fields too. On `SL-PADDY-WEA
 the Weather Agent reports that its data is missing and the Advisory Agent says what to check.
 On `SL-PADDY-POOR` the satellite reading is flagged as unreliable.
 
+### Step 14 · Tracing with Langfuse
+
+A chat turn now runs many models: the orchestrator, then one or more specialists, each with
+its own tool calls. The response shows only the orchestrator's tools. To see everything a
+turn did, with each prompt, reply, tool call, time taken and token count, the app sends
+every run to Langfuse.
+
+It follows Langfuse's LangChain guide:
+<https://langfuse.com/integrations/frameworks/langchain>. You create one `CallbackHandler` and
+pass it in the run's config. LangChain gives the callbacks to everything that runs inside
+that run, including the specialists the orchestrator's tools invoke, so one chat turn becomes
+one trace with each specialist nested under its tool.
+
+- `core/tracing.py`: `create_tracer` builds the handler, or returns None when the keys are
+  not set, so tracing is optional and the tests never need it. `run_config` builds the
+  run's config. It names the trace (`chat` or `ask`), sets the `thread_id` as the Langfuse
+  session, so all turns of one conversation are grouped, and sets the farmer's `user_id` as
+  the trace's user.
+- `ChatService` and `AnswerService` take the tracer and use `run_config` for every run.
+  `get_tracer` in `dependencies.py` builds it once.
+
+To turn it on, create a project at <https://cloud.langfuse.com> (the free plan is enough),
+then add its keys to `.env`:
+
+```bash
+LANGFUSE_PUBLIC_KEY=pk-lf-...
+LANGFUSE_SECRET_KEY=sk-lf-...
+# LANGFUSE_BASE_URL=https://us.cloud.langfuse.com   # for a project in the US region
+```
+
+Send a `POST /chat` and open the trace in Langfuse's Tracing page. The Sessions page shows
+each conversation, turn by turn.
+
 ## Using it from the AgriVibe frontend
 
 The AgriVibe Lite frontend (Next.js) keeps all its knowledge in four Markdown files

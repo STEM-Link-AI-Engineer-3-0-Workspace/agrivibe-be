@@ -9,6 +9,7 @@ from functools import lru_cache
 from fastapi import Request
 from langchain.tools import BaseTool
 from langchain_pinecone import PineconeVectorStore
+from langfuse.langchain import CallbackHandler
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.store.memory import InMemoryStore
 
@@ -20,6 +21,7 @@ from agrivibe.agents.weather import build_weather_agent
 from agrivibe.config import Settings
 from agrivibe.core.llm import create_chat_model
 from agrivibe.core.reranker import Reranker
+from agrivibe.core.tracing import create_tracer
 from agrivibe.db.vectorstore import create_vector_store
 from agrivibe.service.answering import AnswerService
 from agrivibe.service.chatting import ChatService
@@ -49,6 +51,12 @@ def get_reranker() -> Reranker | None:
 
 
 @lru_cache
+def get_tracer() -> CallbackHandler | None:
+    """Returns the shared Langfuse handler, or None when the Langfuse keys are not set."""
+    return create_tracer(get_settings())
+
+
+@lru_cache
 def get_knowledge_service() -> KnowledgeService:
     """Returns the shared service that indexes and searches PDFs."""
     settings = get_settings()
@@ -67,7 +75,7 @@ def get_answer_service() -> AnswerService:
         checkpointer=InMemorySaver(),
         reranker=get_reranker(),
     )
-    return AnswerService(rag_agent)
+    return AnswerService(rag_agent, get_tracer())
 
 
 def build_chat_service(settings: Settings, fieldsat_tools: list[BaseTool]) -> ChatService:
@@ -102,7 +110,7 @@ def build_chat_service(settings: Settings, fieldsat_tools: list[BaseTool]) -> Ch
         checkpointer=InMemorySaver(),
         store=InMemoryStore(),
     )
-    return ChatService(orchestrator)
+    return ChatService(orchestrator, get_tracer())
 
 
 def get_chat_service(request: Request) -> ChatService:
