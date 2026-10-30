@@ -4,9 +4,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from agrivibe.api import ask, knowledge
+from agrivibe.api import ask, chat, knowledge
 from agrivibe.core.mcp import load_fieldsat
-from agrivibe.dependencies import get_settings
+from agrivibe.dependencies import build_chat_service, get_settings
 
 # Print our own INFO lines, such as how long each rerank took. Libraries stay at WARNING.
 logging.basicConfig(format="%(levelname)s:     %(name)s: %(message)s")
@@ -24,13 +24,14 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     fieldsat = await load_fieldsat(settings.fieldsat_url)
     print("FieldSat tools:", ", ".join(tool.name for tool in fieldsat.tools))
+    app.state.chat_service = build_chat_service(settings, fieldsat)
     yield
 
 
 app = FastAPI(
-    title="FieldOracle",
-    description="The AgriVibe knowledge service: index PDFs, then ask a RAG agent for cited answers.",
-    version="0.1.0",
+    title="AgriVibe",
+    description="The AgriVibe backend: FieldOracle's cited answers, and the agents that read FieldSat over MCP.",
+    version="0.2.0",
     lifespan=lifespan,
 )
 
@@ -43,6 +44,7 @@ app.add_middleware(
 
 app.include_router(knowledge.router)
 app.include_router(ask.router)
+app.include_router(chat.router)
 
 
 @app.get("/health", tags=["system"])
