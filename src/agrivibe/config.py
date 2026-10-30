@@ -38,3 +38,8 @@ class Settings(BaseSettings):
     fieldsat_url: str = "http://127.0.0.1:8001/mcp"
 
     cors_origins: list[str] = ["http://localhost:3000"]
+
+    # Langfuse tracing. Optional: with no keys the app runs without it.
+    langfuse_public_key: str | None = None
+    langfuse_secret_key: SecretStr | None = None
+    langfuse_base_url: str = "https://cloud.langfuse.com"

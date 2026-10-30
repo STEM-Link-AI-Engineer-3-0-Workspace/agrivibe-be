@@ -1,8 +1,10 @@
 from uuid import uuid4
 
+from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.messages import AIMessage, BaseMessage
 
 from agrivibe.agents.orchestrator.memory import FarmerContext
+from agrivibe.core.tracing import run_config
 from agrivibe.models.chat import ChatResponse
 from agrivibe.service.answering import current_turn
 
@@ -23,13 +25,15 @@ def tools_called(messages: list[BaseMessage]) -> list[str]:
 class ChatService:
     """Runs the farmer's messages through the orchestrator."""
 
-    def __init__(self, orchestrator):
+    def __init__(self, orchestrator, tracer: BaseCallbackHandler | None = None):
         """Initializes the service.
 
         Args:
             orchestrator: The agent built by `build_orchestrator`.
+            tracer: The Langfuse handler from `create_tracer`, or None to run without tracing.
         """
         self.orchestrator = orchestrator
+        self.tracer = tracer
 
     async def chat(self, message: str, user_id: str, thread_id: str | None = None) -> ChatResponse:
         """Sends one message to the orchestrator and returns its reply.
@@ -47,7 +51,7 @@ class ChatService:
         result = await self.orchestrator.ainvoke(
             # The empty findings clear the last question's evidence (see merge_findings).
             {"messages": [{"role": "user", "content": message}], "findings": {}},
-            {"configurable": {"thread_id": thread_id}},
+            run_config("chat", thread_id, self.tracer, user_id),
             context=FarmerContext(user_id=user_id),
         )
         return ChatResponse(

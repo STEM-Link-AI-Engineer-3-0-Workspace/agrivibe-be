@@ -1,9 +1,11 @@
 from uuid import uuid4
 
+from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.documents import Document
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 
 from agrivibe.agents.fieldoracle import CitedAnswer
+from agrivibe.core.tracing import run_config
 from agrivibe.models.ask import AnswerSentence, AskResponse
 from agrivibe.models.knowledge import Source
 
@@ -75,13 +77,15 @@ def to_source(doc: Document) -> Source:
 class AnswerService:
     """Answers questions with the RAG agent."""
 
-    def __init__(self, rag_agent):
+    def __init__(self, rag_agent, tracer: BaseCallbackHandler | None = None):
         """Initializes the service.
 
         Args:
             rag_agent: The agent built by `build_fieldoracle_agent`.
+            tracer: The Langfuse handler from `create_tracer`, or None to run without tracing.
         """
         self.rag_agent = rag_agent
+        self.tracer = tracer
 
     def ask(self, question: str, thread_id: str | None = None) -> AskResponse:
         """Asks the agent a question and builds a cited response.
@@ -97,7 +101,7 @@ class AnswerService:
         thread_id = thread_id or str(uuid4())
         result = self.rag_agent.invoke(
             {"messages": [{"role": "user", "content": question}]},
-            {"configurable": {"thread_id": thread_id}},
+            run_config("ask", thread_id, self.tracer),
         )
         answer: CitedAnswer = result["structured_response"]
         # The checkpointer returns the whole thread. Sources and searches come from this turn only.
