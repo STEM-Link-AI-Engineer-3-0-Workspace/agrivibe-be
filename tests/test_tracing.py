@@ -5,7 +5,7 @@ from agrivibe.core.tracing import create_tracer
 from agrivibe.dependencies import get_chat_service
 from agrivibe.main import app
 from agrivibe.service.chatting import ChatService
-from tests.test_chat import FIELD_STATE, chat, use_orchestrator
+from tests.test_chat import FIELD_STATE, as_farmer, chat, use_orchestrator
 
 
 class RecordingTracer(BaseCallbackHandler):
@@ -29,10 +29,11 @@ def test_no_langfuse_keys_means_no_tracer():
 def test_one_chat_is_one_trace_with_the_farmer_and_the_thread(client, vector_store):
     agent, _ = use_orchestrator(vector_store, **FIELD_STATE)
     tracer = RecordingTracer()
-    service = ChatService(agent, tracer)
+    service = ChatService(agent, app.dependency_overrides[get_chat_service]().threads, tracer)
     app.dependency_overrides[get_chat_service] = lambda: service
 
-    body = chat(client, "Is my Minneriya field stressed?", user_id="farmer-007")
+    as_farmer("farmer-007")
+    body = chat(client, "Is my Minneriya field stressed?")
 
     names = [name for name, _ in tracer.runs]
     assert names[0] == "chat"

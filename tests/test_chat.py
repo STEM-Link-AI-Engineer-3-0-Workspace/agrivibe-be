@@ -9,9 +9,11 @@ from agrivibe.agents.farm_context import build_farm_context_agent
 from agrivibe.agents.fieldoracle import build_fieldoracle_agent
 from agrivibe.agents.orchestrator import build_orchestrator
 from agrivibe.agents.weather import build_weather_agent
-from agrivibe.dependencies import get_chat_service
+from agrivibe.dependencies import current_farmer, get_chat_service, get_thread_service
 from agrivibe.main import app
+from agrivibe.models.farmer import Farmer
 from agrivibe.service.chatting import ChatService
+from agrivibe.service.threads import ThreadService
 from tests.conftest import upload
 from tests.fakes import ScriptedChatModel, load_fake_fieldsat
 
@@ -29,11 +31,13 @@ def calls(*tool_calls):
 def use_orchestrator(vector_store, **replies):
     """Builds the real agents, each with a scripted model, and puts them behind POST /chat.
 
-    Returns the orchestrator and the scripted models by name, so a test can read what
-    each model was sent.
+    The checkpointer and store are LangGraph's in-memory ones: the app uses Postgres, the
+    tests need no database. Returns the orchestrator and the scripted models by name, so a
+    test can read what each model was sent.
     """
     names = ["orchestrator", "weather", "farm_context", "knowledge", "advisory"]
     models = {name: ScriptedChatModel(replies=list(replies.get(name, []))) for name in names}
+    checkpointer, store = InMemorySaver(), InMemoryStore()
     fieldsat = asyncio.run(load_fake_fieldsat())
     agent = build_orchestrator(
         models["orchestrator"],
@@ -42,16 +46,24 @@ def use_orchestrator(vector_store, **replies):
         build_farm_context_agent(models["farm_context"], fieldsat),
         build_fieldoracle_agent(models["knowledge"], vector_store),
         build_advisory_agent(models["advisory"]),
-        checkpointer=InMemorySaver(),
-        store=InMemoryStore(),
+        checkpointer=checkpointer,
+        store=store,
     )
-    service = ChatService(agent)
+    threads = ThreadService(store, checkpointer)
+    service = ChatService(agent, threads)
     app.dependency_overrides[get_chat_service] = lambda: service
+    app.dependency_overrides[get_thread_service] = lambda: threads
+    as_farmer("frm_test001")
     return agent, models
 
 
-def chat(client, message, user_id="farmer-001", thread_id=None):
-    return client.post("/chat", json={"message": message, "user_id": user_id, "thread_id": thread_id}).json()
+def as_farmer(farmer_id):
+    """Makes the server treat the next requests as coming from this farmer, as a login would."""
+    app.dependency_overrides[current_farmer] = lambda: Farmer(id=farmer_id, name="Test Farmer")
+
+
+def chat(client, message, thread_id=None):
+    return client.post("/chat", json={"message": message, "thread_id": thread_id}).json()
 
 
 FIELD_STATE = {
@@ -84,7 +96,7 @@ def test_field_state_question_calls_two_specialists_in_parallel(client, vector_s
 def test_knowledge_question_returns_fieldoracle_citations(client, vector_store):
     upload(client, "fertiliser_subsidy_circular_2026.pdf", "policy")
     first = next(iter(vector_store.store))
-    use_orchestrator(
+    _, models = use_orchestrator(
         vector_store,
         orchestrator=[
             calls(("ask_knowledge_agent", {"question": "When do fertiliser subsidy claims close?"})),
@@ -101,12 +113,22 @@ def test_knowledge_question_returns_fieldoracle_citations(client, vector_store):
     body = chat(client, "When do subsidy claims close?")
 
     assert body["tools_called"] == ["ask_knowledge_agent"]
-    assert body["findings"] == {
-        "knowledge": {
-            "summary": f"Claims close on 15 November 2026. [{first}]",
-            "data": {"found": True, "citations": [first]},
-        }
-    }
+    knowledge = body["findings"]["knowledge"]
+    assert knowledge["summary"] == f"Claims close on 15 November 2026. [{first}]"
+    assert knowledge["data"] == {"found": True, "citations": [first]}
+    # The cited passage in full, for the farmer to check: what POST /ask used to return as sources.
+    passage = vector_store.store[first]
+    assert knowledge["sources"] == [{
+        "id": first,
+        "source": "fertiliser_subsidy_circular_2026.pdf",
+        "page": passage["metadata"]["page"],
+        "category": "policy",
+        "text": passage["text"],
+        "rerank_score": None,
+    }]
+    # The orchestrator reads the summary and data only: the passage text never fills its prompt.
+    tool_result = models["orchestrator"].received[-1][-1].text
+    assert first in tool_result and passage["text"][:60] not in tool_result
 
 
 def test_a_failing_specialist_does_not_end_the_chat(client, vector_store):
@@ -198,7 +220,11 @@ def test_a_new_message_clears_findings_but_keeps_requirements(client, vector_sto
     second = chat(client, "When is the first top dressing due?", thread_id=first["thread_id"])
 
     assert second["findings"] == {
-        "knowledge": {"summary": "The knowledge base does not cover this.", "data": {"found": False, "citations": []}}
+        "knowledge": {
+            "summary": "The knowledge base does not cover this.",
+            "data": {"found": False, "citations": []},
+            "sources": [],
+        }
     }
     assert second["requirements"] == REQUIREMENTS
 
@@ -211,9 +237,11 @@ def test_the_farm_is_remembered_in_a_new_conversation(client, vector_store):
     ]
     _, models = use_orchestrator(vector_store, **replies)
 
-    chat(client, "Is my Minneriya field stressed?", user_id="farmer-001")
-    chat(client, "Hi", user_id="farmer-001")  # a new thread, same farmer
-    chat(client, "Hi", user_id="farmer-002")  # a new thread, another farmer
+    as_farmer("frm_one")
+    chat(client, "Is my Minneriya field stressed?")
+    chat(client, "Hi")  # a new thread, same farmer
+    as_farmer("frm_two")
+    chat(client, "Hi")  # a new thread, another farmer
 
     same_farmer = models["orchestrator"].received[-2][0].text  # the system prompt of each call
     other_farmer = models["orchestrator"].received[-1][0].text

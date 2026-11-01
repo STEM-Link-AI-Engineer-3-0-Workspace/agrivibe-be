@@ -13,6 +13,9 @@ dependencies = [
     "pydantic-settings>=2.15.0",
     "pypdf>=6.19.0",
     "langfuse>=5.0.4",
+    "langgraph-checkpoint-postgres>=3.2",
+    "psycopg[binary]>=3.2",
+    "psycopg-pool>=3.2",
 ]
 
 [build-system]

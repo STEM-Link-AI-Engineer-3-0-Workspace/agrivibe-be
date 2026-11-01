@@ -14,9 +14,15 @@ calls specialist agents as tools: FieldOracle for knowledge, a Weather Agent and
 Context Agent that read field evidence from the FieldSat MCP server, and an Advisory Agent
 that turns their evidence into one recommendation.
 
+Conversations are kept in Postgres: each farmer's threads, every message and the evidence
+behind each answer survive a restart. The Gradio frontend is a separate repo, `agrivibe-fe`,
+that talks to this API over HTTP.
+
 ## Setup
 
-You need an OpenAI API key and a Pinecone API key (the free Starter plan is enough).
+You need an OpenAI API key, a Pinecone API key (the free Starter plan is enough) and a
+Postgres database. A free [Neon](https://neon.tech) project is enough: copy its **direct**
+connection string (the host without `-pooler`).
 
 ### macOS
 
@@ -34,7 +40,8 @@ uv sync
 copy .env.example .env
 ```
 
-Then open `.env` and paste in both keys.
+Then open `.env` and paste in both keys and `DATABASE_URL`. `FARMER_ID` and `FARMER_NAME` say
+which farmer the app acts for (see Step 15); keep `FARMER_ID` the same in `agrivibe-fe`'s `.env`.
 
 The app also needs the FieldSat MCP server from Level 6 Lesson 3. In that repo, in a second
 terminal, start it before you start this app:
@@ -115,6 +122,8 @@ On Windows, type `curl.exe` instead of `curl`, or use the `/docs` page.
 
 ### Step 05 · The ask endpoint
 
+*Removed in Step 18: FieldOracle now answers through `POST /chat`. Kept here as the build log.*
+
 `POST /ask` calls `AnswerService.ask`, which invokes the agent and builds the response.
 `answer` is the sentences joined, each followed by the ids of the passages it cites:
 `Sentence [id-1, id-2]`. `sentences` has the same content as a list, and `sources` holds
@@ -158,10 +167,16 @@ Your output will differ in wording. The shape is fixed:
 | Method | Path | Body | Returns |
 |---|---|---|---|
 | GET | `/health` | | `{"status": "ok"}` |
+| GET | `/me` | | `Farmer`: who the server thinks is asking |
 | POST | `/documents` | form: `file` (PDF), `category` | `IndexResponse` |
 | POST | `/search` | `{"query", "category"?, "k"?, "rerank"?}` | `SearchResponse` |
-| POST | `/ask` | `{"question", "thread_id"?}` | `AskResponse` |
-| POST | `/chat` | `{"message", "user_id", "thread_id"?}` | `ChatResponse` |
+| POST | `/chat` | `{"message", "thread_id"?}` | `ChatResponse`. 404 if `thread_id` is not yours |
+| GET | `/threads` | | `list[ThreadSummary]`, most recent first |
+| GET | `/threads/{thread_id}` | | `Thread`: every turn with its evidence. 404 if not yours |
+| DELETE | `/threads/{thread_id}` | | 204. 404 if not yours |
+
+No endpoint takes a user id: the server decides who is asking (Step 15). `POST /ask` was
+removed in Step 18; FieldOracle now answers through `/chat`.
 
 The request and response models are in `src/agrivibe/models/`, one module per router. That
 package is the contract a frontend codes against.
@@ -175,16 +190,18 @@ src/agrivibe/
 ├── dependencies.py    builds each shared object once; tests swap them for fakes
 ├── models/            request and response bodies, one module per router
 │   ├── knowledge.py   IndexResponse, SearchRequest, SearchResponse, Source
-│   ├── ask.py         AskRequest, AskResponse
-│   └── chat.py        ChatRequest, ChatResponse
+│   ├── chat.py        ChatRequest, Finding, Turn, ChatResponse
+│   ├── threads.py     ThreadSummary, Thread
+│   └── farmer.py      Farmer
 ├── api/               HTTP layer: routes only, no logic
 │   ├── knowledge.py   POST /documents, POST /search
-│   ├── ask.py         POST /ask
-│   └── chat.py        POST /chat
+│   ├── chat.py        POST /chat
+│   ├── threads.py     GET /threads, GET and DELETE /threads/{thread_id}
+│   └── farmer.py      GET /me
 ├── service/           one class per use case
 │   ├── knowledge.py   read PDF, split, tag, upsert; search
-│   ├── answering.py   invoke the RAG agent, format the cited answer, collect sources
-│   └── chatting.py    invoke the orchestrator, report the tools it called
+│   ├── chatting.py    invoke the orchestrator, record the turn
+│   └── threads.py     the farmer's thread index, every turn, ownership, delete
 ├── agents/            agent layer: knows nothing about HTTP
 │   ├── fieldoracle/   the RAG agent: tool, prompt, output schema
 │   ├── fieldsat.py    what the FieldSat agents share: FieldContext, FieldReport, FieldSatReport
@@ -195,7 +212,8 @@ src/agrivibe/
 ├── core/              clients shared by every layer
 │   ├── llm.py         the chat model
 │   ├── reranker.py    the cross-encoder that re-scores search hits
-│   └── mcp.py         the FieldSat tools, loaded over MCP
+│   ├── mcp.py         the FieldSat tools, loaded over MCP
+│   └── database.py    Postgres: the checkpointer and store, on one connection pool
 └── db/                data access: where the indexed chunks live
     └── vectorstore.py Pinecone, the Category type, search_chunks (search, then rerank)
 ```
@@ -414,6 +432,8 @@ own calls; the MCP calls a specialist made stay inside that specialist's run.
 
 ### Step 12 · Central memory
 
+*Since Step 15 the request has no `user_id`: the server decides who is asking. Leave it out of the examples below.*
+
 The diagram's central memory lives in `agents/orchestrator/memory.py`. Not every agent shares
 everything: each kind of memory has one owner and one lifetime.
 
@@ -484,6 +504,8 @@ app would use database-backed versions, take `user_id` from the login, and check
 
 ### Step 13 · The Advisory Agent
 
+*Since Step 15 the request has no `user_id`: the server decides who is asking. Leave it out of the examples below.*
+
 `agents/advisory/` is the last box in the diagram. It has no tools: everything it may use
 arrives in its message. `ask_advisory_agent` builds that message from central memory: the
 saved requirements, the decision, and every finding the other specialists wrote for this
@@ -538,10 +560,10 @@ one trace with each specialist nested under its tool.
 
 - `core/tracing.py`: `create_tracer` builds the handler, or returns None when the keys are
   not set, so tracing is optional and the tests never need it. `run_config` builds the
-  run's config. It names the trace (`chat` or `ask`), sets the `thread_id` as the Langfuse
+  run's config. It names the trace (`chat`), sets the `thread_id` as the Langfuse
   session, so all turns of one conversation are grouped, and sets the farmer's `user_id` as
   the trace's user.
-- `ChatService` and `AnswerService` take the tracer and use `run_config` for every run.
+- `ChatService` takes the tracer and uses `run_config` for every run.
   `get_tracer` in `dependencies.py` builds it once.
 
 To turn it on, create a project at <https://cloud.langfuse.com> (the free plan is enough),
@@ -556,23 +578,92 @@ LANGFUSE_SECRET_KEY=sk-lf-...
 Send a `POST /chat` and open the trace in Langfuse's Tracing page. The Sessions page shows
 each conversation, turn by turn.
 
-## Using it from the AgriVibe frontend
+### Step 15 · Identity comes from the server
 
-The AgriVibe Lite frontend (Next.js) keeps all its knowledge in four Markdown files
-pasted into one agent's prompt. FieldOracle replaces that with retrieval:
+`POST /chat` used to take a `user_id` in the body, so any client could claim to be any farmer.
+Now no endpoint takes one. `current_farmer()` in `dependencies.py` decides who is asking, and
+every route that needs to know depends on it:
 
-- Its Crop Knowledge agent calls `POST /ask` (or `POST /search`) instead of reading
-  `KNOWLEDGE_BASE`.
-- `answer` can be shown as is. For citation chips, render `sentences` instead: one chip
-  per id in `citations`.
-- Keep `thread_id` per chat and send it with each follow-up.
-- `sources` render as an evidence panel: file, page, passage.
-- `searches` render as live tool chips, the same way satellite and weather calls show today.
-- Add the frontend's URL to `CORS_ORIGINS` if the browser calls FieldOracle directly.
+```python
+def current_farmer() -> Farmer:
+    settings = get_settings()
+    return Farmer(id=settings.farmer_id, name=settings.farmer_name)
+```
 
-For the multi-agent chat, call `POST /chat` instead:
+Today it returns the farmer named in `.env` (`FARMER_ID`, `FARMER_NAME`). That function is the
+seam: a real app resolves the caller there instead, from a session cookie or a token checked
+with an auth service, and no other code changes. `GET /me` shows who the server thinks is asking.
 
-- Send the signed-in farmer's id as `user_id`, and keep `thread_id` per chat.
-- `tools_called` render as live chips: one per specialist the orchestrator asked.
-- `findings` render as the evidence panel, one card per specialist: the `summary` as text,
-  and `data` for the numbers and badges (rain in mm, NDVI change, data quality).
+This is a contract break: `ChatRequest` dropped `user_id`, and `ChatResponse` no longer echoes it.
+
+### Step 16 · Postgres
+
+Threads and farmer memory were in process memory, so a restart wiped them. Now the orchestrator's
+checkpointer and store live in Postgres: `AsyncPostgresSaver` and `AsyncPostgresStore` from
+`langgraph-checkpoint-postgres`, sharing one connection pool in `core/database.py`. Both create
+their own tables with `setup()` on first start, so there is no schema to write and no migration.
+
+Opening Postgres is async, so it happens in the lifespan, next to loading FieldSat. Like the API
+keys and FieldSat, the database is required: with a bad `DATABASE_URL` the app refuses to start.
+With Postgres connected, `uv run fastapi dev` prints:
+
+```
+FieldSat tools: list_fields, get_satellite_analysis, get_weather_context
+Postgres: connected; threads and farmer memory persist
+```
+
+Two details matter with Neon. Use the **direct** connection string, because the checkpointer uses
+prepared statements, which a transaction pooler (`-pooler` in the host) can break. And Neon
+scales to zero and closes idle connections, so the pool checks each connection before using it.
+
+The Postgres store only allows async calls inside the app's event loop. `remember_the_farm` and
+`save_requirements` now use `aget` and `aput`; the in-memory store had allowed the sync versions.
+
+The tests still need no database: they build the agents with LangGraph's in-memory saver and store.
+
+### Step 17 · Threads
+
+The checkpointer keeps each thread's state, but keyed by `thread_id` alone, as the agent's own
+messages. A product needs more, so `service/threads.py` keeps two things in the same store:
+
+| Namespace | Holds |
+|---|---|
+| `("threads", farmer_id)` | one item per conversation: title (the first message), `created_at`, `updated_at`, `turns`. It is the owner index |
+| `("turns", thread_id)` | one item per message: the `Turn` the farmer saw, evidence included |
+
+`ChatService` records a `Turn` after every message: the message, the answer, `tools_called`,
+`requirements`, `findings`, `started_at` and `seconds`. Findings are cleared on every new
+message, so this is the only record of a past answer's evidence.
+
+`GET /threads` lists your conversations, `GET /threads/{thread_id}` returns one with every turn,
+and `DELETE /threads/{thread_id}` removes its index entry, its turns and its checkpoints. A thread
+that is not yours is a 404, and so is continuing one through `/chat`: someone else's conversation
+is never read or continued.
+
+### Step 18 · `/chat` carries sources, `/ask` goes
+
+`/ask` returned each cited passage in full; `/chat`'s knowledge finding only had the ids. Now
+each finding has a `sources` list, filled for knowledge: id, file, page, category, passage text
+and rerank score. `as_text` never includes it, so the passages reach the farmer without filling
+the orchestrator's or the Advisory Agent's prompt.
+
+With that, `/chat` does everything `/ask` did, so `/ask` was removed with `AnswerService` and its
+own FieldOracle and checkpointer. To try FieldOracle on its own, use the script:
+
+```bash
+uv run python scripts/try_agent.py knowledge "When is the first top dressing due for Bg 300?"
+```
+
+## Using it from a frontend
+
+`agrivibe-fe` is the Gradio frontend built for this API. Any client follows the same contract:
+
+- Send only `{"message", "thread_id"?}` to `POST /chat`. Never send who the farmer is.
+- Keep the `thread_id` of the open conversation, and list past ones with `GET /threads`.
+- Reopen one with `GET /threads/{thread_id}`: every turn has its answer and its evidence.
+- `tools_called` render as steps: one per specialist the orchestrator asked.
+- `findings` render as evidence cards, one per specialist: the `summary` as text, `data` for the
+  numbers and badges, and for knowledge, `sources` as the cited files and pages.
+- An empty `data` means that specialist or its tool failed. Show it, rather than hiding the card.
+- Add the frontend's URL to `CORS_ORIGINS` if a browser calls the API directly. `agrivibe-fe`
+  calls it from its own server, so it needs no CORS.

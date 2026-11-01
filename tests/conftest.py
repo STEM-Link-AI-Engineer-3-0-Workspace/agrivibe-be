@@ -4,9 +4,11 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-# Settings need both keys to exist. The fakes below mean neither is ever used.
+# Settings need both keys and a database URL to exist. The fakes below mean none is ever used:
+# TestClient(app) without `with` never runs the lifespan, so nothing connects to Postgres or FieldSat.
 os.environ.setdefault("OPENAI_API_KEY", "test-key")
 os.environ.setdefault("PINECONE_API_KEY", "test-key")
+os.environ.setdefault("DATABASE_URL", "postgresql://test:test@localhost/test")
 
 from agrivibe.dependencies import get_knowledge_service
 from agrivibe.main import app

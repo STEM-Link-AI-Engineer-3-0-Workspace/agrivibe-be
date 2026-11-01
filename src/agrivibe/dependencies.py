@@ -9,8 +9,8 @@ from functools import lru_cache
 from fastapi import Request
 from langchain_pinecone import PineconeVectorStore
 from langfuse.langchain import CallbackHandler
-from langgraph.checkpoint.memory import InMemorySaver
-from langgraph.store.memory import InMemoryStore
+from langgraph.checkpoint.base import BaseCheckpointSaver
+from langgraph.store.base import BaseStore
 
 from agrivibe.agents.advisory import build_advisory_agent
 from agrivibe.agents.farm_context import build_farm_context_agent
@@ -23,9 +23,10 @@ from agrivibe.core.mcp import FieldSat
 from agrivibe.core.reranker import Reranker
 from agrivibe.core.tracing import create_tracer
 from agrivibe.db.vectorstore import create_vector_store
-from agrivibe.service.answering import AnswerService
+from agrivibe.models.farmer import Farmer
 from agrivibe.service.chatting import ChatService
 from agrivibe.service.knowledge import KnowledgeService
+from agrivibe.service.threads import ThreadService
 
 
 @lru_cache
@@ -63,30 +64,31 @@ def get_knowledge_service() -> KnowledgeService:
     return KnowledgeService(get_vector_store(), settings.chunk_size, settings.chunk_overlap, get_reranker())
 
 
-@lru_cache
-def get_answer_service() -> AnswerService:
-    """Returns the shared service that answers questions with the RAG agent."""
+def current_farmer() -> Farmer:
+    """Returns the farmer making the request. Every route that needs to know who is asking depends on this.
+
+    This is the auth seam. Today it returns the farmer named in .env (FARMER_ID, FARMER_NAME).
+    A real app resolves the caller here instead, from a session cookie or a token checked with an
+    auth service, and no other code changes. Identity never comes from the request body.
+    """
     settings = get_settings()
-    # Threads live in process memory: they reset when the app restarts and are not shared between workers.
-    rag_agent = build_fieldoracle_agent(
-        create_chat_model(settings),
-        get_vector_store(),
-        k=settings.search_k,
-        checkpointer=InMemorySaver(),
-        reranker=get_reranker(),
-    )
-    return AnswerService(rag_agent, get_tracer())
+    return Farmer(id=settings.farmer_id, name=settings.farmer_name)
 
 
-def build_chat_service(settings: Settings, fieldsat: FieldSat) -> ChatService:
+def build_chat_service(
+    settings: Settings, fieldsat: FieldSat, checkpointer: BaseCheckpointSaver, store: BaseStore, threads: ThreadService
+) -> ChatService:
     """Builds the specialists and the orchestrator that calls them.
 
     Called once, from the lifespan in main.py: the FieldSat tools are only known after
-    the app has asked the server for them.
+    the app has asked the server for them, and Postgres is opened there.
 
     Args:
         settings: Application settings.
         fieldsat: The tools and instructions loaded from the FieldSat MCP server.
+        checkpointer: Saves each thread's state, in Postgres.
+        store: Each farmer's long-term memory, thread index and turns, in Postgres.
+        threads: Records each turn. Shares the store.
 
     Returns:
         The service behind POST /chat.
@@ -94,12 +96,10 @@ def build_chat_service(settings: Settings, fieldsat: FieldSat) -> ChatService:
     model = create_chat_model(settings)
     weather_agent = build_weather_agent(model, fieldsat)
     farm_context_agent = build_farm_context_agent(model, fieldsat)
-    # A second FieldOracle, without a checkpointer: as a specialist it starts fresh on every call.
-    # It searches the same way /ask does: vector search, then the cross-encoder.
+    # FieldOracle has no checkpointer: as a specialist it starts fresh on every call.
+    # It searches the same way POST /search does: vector search, then the cross-encoder.
     knowledge_agent = build_fieldoracle_agent(model, get_vector_store(), k=settings.search_k, reranker=get_reranker())
     advisory_agent = build_advisory_agent(model)
-    # Both live in process memory, so they reset when the app restarts.
-    # In production they would be database-backed (Postgres, Redis).
     orchestrator = build_orchestrator(
         model,
         fieldsat,
@@ -107,12 +107,17 @@ def build_chat_service(settings: Settings, fieldsat: FieldSat) -> ChatService:
         farm_context_agent,
         knowledge_agent,
         advisory_agent,
-        checkpointer=InMemorySaver(),
-        store=InMemoryStore(),
+        checkpointer=checkpointer,
+        store=store,
     )
-    return ChatService(orchestrator, get_tracer())
+    return ChatService(orchestrator, threads, get_tracer())
 
 
 def get_chat_service(request: Request) -> ChatService:
     """Returns the chat service the lifespan built at startup."""
     return request.app.state.chat_service
+
+
+def get_thread_service(request: Request) -> ThreadService:
+    """Returns the thread service the lifespan built at startup."""
+    return request.app.state.thread_service

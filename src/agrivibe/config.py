@@ -7,14 +7,22 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     """Application settings, read from the environment or the `.env` file.
 
-    The two API keys have no default, so the app fails at startup when either is
-    missing instead of failing on the first request.
+    The two API keys and the database URL have no default, so the app fails at startup
+    when one is missing instead of failing on the first request.
     """
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     openai_api_key: SecretStr
     pinecone_api_key: SecretStr
+
+    # Postgres (a free Neon project is enough). Threads, farmer memory and each turn's evidence live here.
+    database_url: SecretStr
+
+    # The farmer this app acts for. Identity is decided here, on the server, never by the request:
+    # see current_farmer in dependencies.py, the one place a real auth service would plug in.
+    farmer_id: str = "frm_7f3a9c2e"
+    farmer_name: str = "Nimal Perera"
 
     chat_model: str = "openai:gpt-5.6-luna"
     embedding_model: str = "text-embedding-3-small"

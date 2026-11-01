@@ -1,5 +1,8 @@
+from typing import Any
+
 from langchain.tools import BaseTool, tool
 from langchain_core.documents import Document
+from langchain_core.messages import BaseMessage, ToolMessage
 from langchain_core.vectorstores import VectorStore
 
 from agrivibe.core.reranker import Reranker
@@ -24,6 +27,38 @@ def format_passages(docs: list[Document]) -> str:
         header = f"[{doc.id}] {meta['source']}, page {meta['page']}"
         blocks.append(header + "\n" + doc.page_content)
     return "\n\n".join(blocks)
+
+
+def cited_sources(messages: list[BaseMessage], citations: list[str]) -> list[dict[str, Any]]:
+    """Returns the passages an answer cites, as the search tool retrieved them.
+
+    The search tool returns the documents as its artifact, so the cited passages are read
+    from the agent's messages rather than searched again.
+
+    Args:
+        messages: The agent's message history for one run.
+        citations: The record ids (`<doc_id>-<n>`) the answer cites, in order.
+
+    Returns:
+        One dict per cited passage: id, source, page, category, text and rerank_score.
+    """
+    retrieved = {}
+    for message in messages:
+        if isinstance(message, ToolMessage) and message.name == "search_knowledge":
+            for doc in message.artifact or []:
+                retrieved[doc.id] = doc
+    return [
+        {
+            "id": doc.id,
+            "source": doc.metadata["source"],
+            "page": doc.metadata["page"],
+            "category": doc.metadata["category"],
+            "text": doc.page_content,
+            "rerank_score": doc.metadata.get("rerank_score"),
+        }
+        for citation in citations
+        if (doc := retrieved.get(citation)) is not None
+    ]
 
 
 def make_search_tool(vector_store: VectorStore, k: int, reranker: Reranker | None = None) -> BaseTool:

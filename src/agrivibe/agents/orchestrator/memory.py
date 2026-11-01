@@ -36,6 +36,8 @@ class Finding(TypedDict):
 
     summary: str
     data: dict[str, Any]  # FieldSat's reply, or FieldOracle's found and citations; empty if it failed
+    # FieldOracle only: the cited passages in full, for the farmer to check. No model reads them.
+    sources: NotRequired[list[dict[str, Any]]]
 
 
 def merge_findings(current: dict[str, Finding], update: dict[str, Finding]) -> dict[str, Finding]:
@@ -59,16 +61,17 @@ class AgriVibeState(AgentState):
 
 
 @dynamic_prompt
-def remember_the_farm(request: ModelRequest[FarmerContext]) -> str:
+async def remember_the_farm(request: ModelRequest[FarmerContext]) -> str:
     """Adds the farmer's saved field, from the store, to the orchestrator's system prompt.
 
     This runs before every model call, so a new conversation already knows the field the
-    farmer talked about last time.
+    farmer talked about last time. It is async because the Postgres store only allows
+    async calls inside the app's event loop.
     """
     prompt = request.system_prompt or ""
     store = request.runtime.store
     # Without a store (the orchestrator was built without one) there is nothing to remember.
-    saved = store.get(("farmers", request.runtime.context.user_id), "farm") if store else None
+    saved = await store.aget(("farmers", request.runtime.context.user_id), "farm") if store else None
     if saved is None:
         return prompt
     farm = saved.value
