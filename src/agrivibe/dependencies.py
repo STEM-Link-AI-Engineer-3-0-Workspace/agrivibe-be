@@ -71,6 +71,8 @@ def current_farmer() -> Farmer:
     A real app resolves the caller here instead, from a session cookie or a token checked with an
     auth service, and no other code changes. Identity never comes from the request body.
     """
+   # Put the real authentication integration here
+
     settings = get_settings()
     return Farmer(id=settings.farmer_id, name=settings.farmer_name)
 
