@@ -89,8 +89,8 @@ def build_chat_service(
         settings: Application settings.
         fieldsat: The tools and instructions loaded from the FieldSat MCP server.
         checkpointer: Saves each thread's state, in Postgres.
-        store: Each farmer's long-term memory, thread index and turns, in Postgres.
-        threads: Records each turn. Shares the store.
+        store: What the orchestrator remembers about each farmer, such as their field, in Postgres.
+        threads: Records each turn, in AgriVibe's own tables.
 
     Returns:
         The service behind POST /chat.

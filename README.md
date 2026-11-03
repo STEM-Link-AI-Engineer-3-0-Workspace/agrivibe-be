@@ -201,7 +201,7 @@ src/agrivibe/
 ├── service/           one class per use case
 │   ├── knowledge.py   read PDF, split, tag, upsert; search
 │   ├── chatting.py    invoke the orchestrator, record the turn
-│   └── threads.py     the farmer's thread index, every turn, ownership, delete
+│   └── threads.py     the farmer's threads and turns, in SQL: ownership, order, delete
 ├── agents/            agent layer: knows nothing about HTTP
 │   ├── fieldoracle/   the RAG agent: tool, prompt, output schema
 │   ├── fieldsat.py    what the FieldSat agents share: FieldContext, FieldReport, FieldSatReport
@@ -213,7 +213,8 @@ src/agrivibe/
 │   ├── llm.py         the chat model
 │   ├── reranker.py    the cross-encoder that re-scores search hits
 │   ├── mcp.py         the FieldSat tools, loaded over MCP
-│   └── database.py    Postgres: the checkpointer and store, on one connection pool
+│   ├── database.py    Postgres: our tables, the checkpointer and the store, on one pool
+│   └── schema.sql     our tables: farmers, threads, turns
 └── db/                data access: where the indexed chunks live
     └── vectorstore.py Pinecone, the Category type, search_chunks (search, then rerank)
 ```
@@ -620,6 +621,7 @@ The Postgres store only allows async calls inside the app's event loop. `remembe
 `save_requirements` now use `aget` and `aput`; the in-memory store had allowed the sync versions.
 
 The tests still need no database: they build the agents with LangGraph's in-memory saver and store.
+(Step 19 changes this.)
 
 ### Step 17 · Threads
 
@@ -652,6 +654,44 @@ own FieldOracle and checkpointer. To try FieldOracle on its own, use the script:
 
 ```bash
 uv run python scripts/try_agent.py knowledge "When is the first top dressing due for Bg 300?"
+```
+
+### Step 19 · Our own tables
+
+Step 17 kept threads and turns as JSON in LangGraph's key–value store, under text prefixes like
+`threads.<farmer_id>`. The data model existed only in those strings: Postgres couldn't enforce a
+thread's owner, join a thread to its turns, or delete them together. Now AgriVibe owns three
+tables, in `core/schema.sql`:
+
+```
+farmers ──< threads ──< turns
+```
+
+| Table | Holds | Keeps it right |
+|---|---|---|
+| `farmers` | `id`, `name` | the primary key |
+| `threads` | `id` (uuid), `farmer_id`, `title`, `created_at`, `updated_at` | `farmer_id` references `farmers`; index on `(farmer_id, updated_at DESC)` for the list |
+| `turns` | `position`, `message`, `answer`, `tools_called`, `requirements`, `findings`, `started_at`, `seconds` | `thread_id` references `threads` `ON DELETE CASCADE`; `UNIQUE (thread_id, position)` |
+
+- `findings` stays `jsonb`: it is always read whole, and each specialist's report has its own shape.
+- The turn count in `ThreadSummary` is counted with a join, not stored.
+- `record_turn` saves the thread and the turn in one transaction. The thread's row stays locked
+  until the commit, so two messages to one thread at once get positions one after the other.
+- Deleting a thread is one `DELETE`; its turns go by cascade, then its checkpoints.
+- Startup seeds the farmer in `.env` (`add_farmer`), as an admin would: a thread can't belong to
+  a farmer the database doesn't know. Real sign-up would create farmers instead.
+
+`open_database` (was `open_memory`) applies `schema.sql` on every start; each statement is
+`IF NOT EXISTS`. The SQL is plain psycopg on the pool LangGraph already uses: no ORM. LangGraph's
+checkpointer and store are unchanged; the store now only holds the orchestrator's farm memory.
+
+The chat and thread tests now run against a real Postgres, through the same SQL. Point
+`TEST_DATABASE_URL` at an empty database you don't mind wiping; without it, those tests are
+skipped and the rest still run:
+
+```bash
+createdb agrivibe_test   # or: docker run -d -p 5432:5432 -e POSTGRES_HOST_AUTH_METHOD=trust postgres
+TEST_DATABASE_URL=postgresql://localhost/agrivibe_test uv run pytest
 ```
 
 ## Using it from a frontend

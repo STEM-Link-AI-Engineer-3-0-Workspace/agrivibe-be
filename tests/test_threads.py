@@ -1,5 +1,7 @@
+import psycopg
 from langchain_core.messages import AIMessage
 
+from tests.conftest import TEST_DATABASE_URL
 from tests.test_chat import FIELD_STATE, REQUIREMENTS, as_farmer, calls, chat, use_orchestrator
 
 FOLLOW_UP = {
@@ -90,6 +92,21 @@ def test_deleting_a_conversation_removes_its_history_and_state(client, vector_st
     assert client.get(f"/threads/{thread_id}").status_code == 404
     assert agent.get_state({"configurable": {"thread_id": thread_id}}).values == {}
 
+
+
+def test_turns_are_numbered_in_order_and_deleted_with_their_thread(client, vector_store):
+    use_orchestrator(vector_store, orchestrator=[AIMessage(content="Hello."), AIMessage(content="Still here.")])
+    thread_id = chat(client, "Hi")["thread_id"]
+    chat(client, "Are you there?", thread_id=thread_id)
+
+    def positions():
+        with psycopg.connect(TEST_DATABASE_URL) as conn:
+            rows = conn.execute("SELECT position FROM turns WHERE thread_id = %s ORDER BY position", (thread_id,))
+            return [position for (position,) in rows]
+
+    assert positions() == [0, 1]
+    client.delete(f"/threads/{thread_id}")
+    assert positions() == []  # ON DELETE CASCADE: the turns went with their thread
 
 def test_the_server_decides_who_is_asking(client, vector_store):
     use_orchestrator(vector_store, orchestrator=[AIMessage(content="Hello.")])

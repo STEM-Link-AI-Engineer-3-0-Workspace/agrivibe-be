@@ -1,5 +1,7 @@
 import asyncio
 
+import psycopg
+import pytest
 from langchain_core.messages import AIMessage
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.store.memory import InMemoryStore
@@ -14,7 +16,7 @@ from agrivibe.main import app
 from agrivibe.models.farmer import Farmer
 from agrivibe.service.chatting import ChatService
 from agrivibe.service.threads import ThreadService
-from tests.conftest import upload
+from tests.conftest import TEST_DATABASE_URL, upload
 from tests.fakes import ScriptedChatModel, load_fake_fieldsat
 
 MINNERIYA = "SL-PADDY-MINNERIYA"
@@ -31,10 +33,12 @@ def calls(*tool_calls):
 def use_orchestrator(vector_store, **replies):
     """Builds the real agents, each with a scripted model, and puts them behind POST /chat.
 
-    The checkpointer and store are LangGraph's in-memory ones: the app uses Postgres, the
-    tests need no database. Returns the orchestrator and the scripted models by name, so a
-    test can read what each model was sent.
+    The orchestrator's checkpointer and store are LangGraph's in-memory ones, but threads and
+    turns go to the test database, through the same SQL the app runs. Returns the orchestrator
+    and the scripted models by name, so a test can read what each model was sent.
     """
+    if app.state.pool is None:
+        pytest.skip("needs Postgres for threads: set TEST_DATABASE_URL (see tests/conftest.py)")
     names = ["orchestrator", "weather", "farm_context", "knowledge", "advisory"]
     models = {name: ScriptedChatModel(replies=list(replies.get(name, []))) for name in names}
     checkpointer, store = InMemorySaver(), InMemoryStore()
@@ -49,7 +53,7 @@ def use_orchestrator(vector_store, **replies):
         checkpointer=checkpointer,
         store=store,
     )
-    threads = ThreadService(store, checkpointer)
+    threads = ThreadService(app.state.pool, checkpointer)
     service = ChatService(agent, threads)
     app.dependency_overrides[get_chat_service] = lambda: service
     app.dependency_overrides[get_thread_service] = lambda: threads
@@ -58,7 +62,13 @@ def use_orchestrator(vector_store, **replies):
 
 
 def as_farmer(farmer_id):
-    """Makes the server treat the next requests as coming from this farmer, as a login would."""
+    """Makes the server treat the next requests as coming from this farmer, as a login would.
+
+    The farmer is created first, as the app's startup seeds the farmer in .env: a thread can't
+    belong to a farmer the database doesn't know.
+    """
+    with psycopg.connect(TEST_DATABASE_URL, autocommit=True) as conn:
+        conn.execute("INSERT INTO farmers (id, name) VALUES (%s, 'Test Farmer') ON CONFLICT DO NOTHING", (farmer_id,))
     app.dependency_overrides[current_farmer] = lambda: Farmer(id=farmer_id, name="Test Farmer")
 
 
