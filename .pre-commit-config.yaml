@@ -1,0 +1,23 @@
+# Gate 1 (Lesson 3): fast, free, offline checks before a commit. Install once per clone: uvx pre-commit install
+# A hook is a convenience, not a control (git commit --no-verify skips it). CI runs all of this again.
+repos:
+  - repo: local
+    hooks:
+      - id: ruff
+        name: ruff (same command as CI)
+        language: system
+        entry: uvx ruff check src tests evals scripts
+        pass_filenames: false
+        types: [python]
+      - id: no-api-keys
+        name: No API keys in commits
+        language: pygrep
+        # OpenAI (sk-...), Pinecone (pcsk_...) and Langfuse secret keys. The local demo key is allowed.
+        entry: '(sk-(proj-)?[A-Za-z0-9_-]{20,}|pcsk_[A-Za-z0-9_]{20,}|sk-lf-(?!local-demo)[A-Za-z0-9-]{8,})'
+        exclude: '^(uv\.lock|\.pre-commit-config\.yaml)$'
+      - id: agent-fast-tests
+        name: Agent fast tests (fake model, no keys)
+        language: system
+        entry: uv run pytest -q -x
+        pass_filenames: false
+        always_run: true

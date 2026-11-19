@@ -99,8 +99,8 @@ class InputModeration(AgentMiddleware):
             return None
         try:
             flagged = await self.moderate(human[-1].text)
-        except Exception as error:  # fail open, but visibly: moderation is not worth a dead chat
-            logger.exception("moderation failed; letting the message through")
+        except Exception as error:  # noqa: BLE001 - fail open, but visibly: moderation is not worth a dead chat
+            logger.warning("moderation failed, message let through: %s", error)
             record("moderation_unavailable", str(error))
             return None
         if not flagged:
