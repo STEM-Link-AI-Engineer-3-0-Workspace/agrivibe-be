@@ -60,6 +60,23 @@ jobs:
         uses: astral-sh/setup-uv@v10.3.3
       - if: steps.changed.outputs.agent == 'true'
         run: uv sync --locked
+      - name: Check the OpenAI key secret (fail fast, never print it)
+        if: steps.changed.outputs.agent == 'true'
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          # A bad secret otherwise shows up as five confusing "Connection error"s: the SDK reports a key with a
+          # newline or a space (illegal in an HTTP header) as a connection problem.
+          if [ -z "$OPENAI_API_KEY" ]; then
+            echo "::error::The OPENAI_API_KEY secret is empty or not set."; exit 1
+          fi
+          if printf %s "$OPENAI_API_KEY" | grep -q "[[:space:]\"']"; then
+            echo "::error::The OPENAI_API_KEY secret contains whitespace, a line break or quotes. Paste only the key."; exit 1
+          fi
+          case "$OPENAI_API_KEY" in
+            sk-*) echo "OPENAI_API_KEY looks well-formed (${#OPENAI_API_KEY} characters)." ;;
+            *) echo "::error::The OPENAI_API_KEY secret doesn't start with sk- (was OPENAI_API_KEY= pasted too?)."; exit 1 ;;
+          esac
       - name: Real-model evals (smoke set, 2 runs)
         if: steps.changed.outputs.agent == 'true'
         env:
