@@ -48,6 +48,9 @@ class Settings(BaseSettings):
 
     # Lesson 3: guardrails (core/guardrails.py). GUARDRAILS=false switches them all off, for the before/after demo.
     guardrails: bool = True
+    # Input moderation calls OpenAI's Moderations endpoint. MODERATION=false skips it, for example when the
+    # API key is not allowed to call it (HTTP 403), rather than recording "moderation_unavailable" on every turn.
+    moderation: bool = True
     moderation_model: str = "omni-moderation-latest"
     # Output check: a fertiliser dose above this, per application, is withheld. A demo value, not agronomy advice.
     max_dose_kg_per_ha: int = 150

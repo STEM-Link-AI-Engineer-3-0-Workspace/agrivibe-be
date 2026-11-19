@@ -124,7 +124,9 @@ def build_chat_service(settings: Settings, fieldsat: FieldSat) -> ChatService:
         checkpointer=InMemorySaver(),
         store=InMemoryStore(),
         guardrails=orchestrator_guardrails(
-            settings, openai_moderation(settings.openai_api_key.get_secret_value(), settings.moderation_model)
+            settings,
+            openai_moderation(settings.openai_api_key.get_secret_value(), settings.moderation_model)
+            if settings.moderation else None,
         ),
     )
     tags = [f"guardrails:{'on' if settings.guardrails else 'off'}"]

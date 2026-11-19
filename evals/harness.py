@@ -63,7 +63,8 @@ async def build_service(settings: Settings, use_pinecone: bool) -> ChatService:
     else:
         vector_store = FakeVectorStore()
     guards = specialist_guardrails(settings)
-    moderate = openai_moderation(settings.openai_api_key.get_secret_value(), settings.moderation_model)
+    moderate = (openai_moderation(settings.openai_api_key.get_secret_value(), settings.moderation_model)
+                if settings.moderation else None)
     orchestrator = build_orchestrator(
         model,
         fieldsat,
