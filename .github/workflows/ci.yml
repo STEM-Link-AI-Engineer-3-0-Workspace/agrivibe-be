@@ -70,9 +70,10 @@ jobs:
           if [ -z "$OPENAI_API_KEY" ]; then
             echo "::error::The OPENAI_API_KEY secret is empty or not set."; exit 1
           fi
-          if printf %s "$OPENAI_API_KEY" | grep -q "[[:space:]\"']"; then
-            echo "::error::The OPENAI_API_KEY secret contains whitespace, a line break or quotes. Paste only the key."; exit 1
-          fi
+          case "$OPENAI_API_KEY" in
+            *[[:space:]]*|*\"*|*\'*)
+              echo "::error::The OPENAI_API_KEY secret contains whitespace, a line break or quotes. Paste only the key."; exit 1 ;;
+          esac
           case "$OPENAI_API_KEY" in
             sk-*) echo "OPENAI_API_KEY looks well-formed (${#OPENAI_API_KEY} characters)." ;;
             *) echo "::error::The OPENAI_API_KEY secret doesn't start with sk- (was OPENAI_API_KEY= pasted too?)."; exit 1 ;;
