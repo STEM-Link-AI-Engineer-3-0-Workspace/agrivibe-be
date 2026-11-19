@@ -9,6 +9,7 @@ from agrivibe.agents.farm_context import build_farm_context_agent
 from agrivibe.agents.fieldoracle import build_fieldoracle_agent
 from agrivibe.agents.orchestrator import build_orchestrator
 from agrivibe.agents.weather import build_weather_agent
+from agrivibe.core.guardrails import advisory_guardrails, orchestrator_guardrails, specialist_guardrails
 from agrivibe.dependencies import get_chat_service
 from agrivibe.main import app
 from agrivibe.service.chatting import ChatService
@@ -26,8 +27,11 @@ def calls(*tool_calls):
     )
 
 
-def use_orchestrator(vector_store, **replies):
+def use_orchestrator(vector_store, settings=None, moderate=None, **replies):
     """Builds the real agents, each with a scripted model, and puts them behind POST /chat.
+
+    Pass `settings` to add the guardrails those settings ask for (Lesson 3), and `moderate`
+    to stand in for the moderation model.
 
     Returns the orchestrator and the scripted models by name, so a test can read what
     each model was sent.
@@ -35,15 +39,17 @@ def use_orchestrator(vector_store, **replies):
     names = ["orchestrator", "weather", "farm_context", "knowledge", "advisory"]
     models = {name: ScriptedChatModel(replies=list(replies.get(name, []))) for name in names}
     fieldsat = asyncio.run(load_fake_fieldsat())
+    specialist_guards = specialist_guardrails(settings) if settings else []
     agent = build_orchestrator(
         models["orchestrator"],
         fieldsat,
-        build_weather_agent(models["weather"], fieldsat),
-        build_farm_context_agent(models["farm_context"], fieldsat),
+        build_weather_agent(models["weather"], fieldsat, specialist_guards),
+        build_farm_context_agent(models["farm_context"], fieldsat, specialist_guards),
         build_fieldoracle_agent(models["knowledge"], vector_store),
-        build_advisory_agent(models["advisory"]),
+        build_advisory_agent(models["advisory"], advisory_guardrails(settings) if settings else []),
         checkpointer=InMemorySaver(),
         store=InMemoryStore(),
+        guardrails=orchestrator_guardrails(settings, moderate) if settings else [],
     )
     service = ChatService(agent)
     app.dependency_overrides[get_chat_service] = lambda: service

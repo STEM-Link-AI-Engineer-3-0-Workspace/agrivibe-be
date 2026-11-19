@@ -50,3 +50,18 @@ class ChatResponse(BaseModel):
     findings: dict[str, Finding] = Field(
         description="What each specialist reported for this message, by name: weather, farm_context, knowledge."
     )
+    trace_id: str | None = Field(
+        default=None, description="The Langfuse trace of this turn. Send it to POST /feedback. None without tracing."
+    )
+    guardrails: list[str] = Field(
+        default_factory=list,
+        description="Guardrails that fired on this turn, and tool_error when a tool failed (Lesson 3).",
+    )
+
+
+class FeedbackRequest(BaseModel):
+    """A farmer's 👍 or 👎 on one reply."""
+
+    trace_id: str = Field(min_length=1, max_length=100, description="The trace_id from the reply's ChatResponse.")
+    positive: bool = Field(description="True for 👍, False for 👎.")
+    comment: str | None = Field(default=None, max_length=1000)

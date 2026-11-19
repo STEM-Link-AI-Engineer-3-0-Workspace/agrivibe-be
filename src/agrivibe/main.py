@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from agrivibe.api import ask, chat, knowledge
+from agrivibe.api import ask, chat, feedback, knowledge
 from agrivibe.core.mcp import load_fieldsat
 from agrivibe.dependencies import build_chat_service, get_settings
 
@@ -45,6 +45,7 @@ app.add_middleware(
 app.include_router(knowledge.router)
 app.include_router(ask.router)
 app.include_router(chat.router)
+app.include_router(feedback.router)
 
 
 @app.get("/health", tags=["system"])
