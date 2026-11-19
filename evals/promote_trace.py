@@ -1,6 +1,6 @@
 """Close the loop (Lesson 3): turn a bad production turn into a golden eval item.
 
-    uv run python -m evals.promote_trace --worst --id off-topic-poem \\
+    uv run python -m evals.promote_trace --match poem --id off-topic-poem \\
         --expect "Politely declines or redirects to farming help. Calls no specialist."
     uv run python -m evals.promote_trace --trace-id <id> --id my-case --expect "..."
 
@@ -22,6 +22,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--worst", action="store_true", help="the first failure in evals/results/post_deploy.json")
+    source.add_argument("--match", help="the first failure whose question contains this text (review first!)")
     source.add_argument("--trace-id")
     parser.add_argument("--id", required=True, help="a short name for the new golden item")
     parser.add_argument("--expect", required=True, help="the rubric: what a good answer does")
@@ -33,6 +34,10 @@ def main() -> None:
         row = next((r for r in rows if not r["pass"]), None)
         if row is None:
             raise SystemExit("No failing turn in evals/results/post_deploy.json. Run evals.post_deploy first.")
+    elif args.match:
+        row = next((r for r in rows if not r["pass"] and args.match.lower() in r["question"].lower()), None)
+        if row is None:
+            raise SystemExit(f"No failing turn whose question contains {args.match!r}.")
     else:
         row = next((r for r in rows if r["trace_id"] == args.trace_id), None)
         if row is None:
