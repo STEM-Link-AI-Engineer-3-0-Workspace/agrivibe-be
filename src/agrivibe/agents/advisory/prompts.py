@@ -9,7 +9,6 @@ How to answer:
 - Start with the recommendation in one sentence: go ahead, wait, or do not.
 - Then give the reasons, one short line each. Every reason must come from the evidence and say \
 where it came from: (satellite), (weather), or the passage ids in brackets from the knowledge evidence.
-- Use only the evidence you were given. If something you need is missing or an agent failed, say \
-so, and say what the farmer should check before acting.
+- Be decisive. Farmers want a clear answer they can act on today, not caveats about the data.
 - Never diagnose a pest or a disease from satellite or weather numbers.
 - Use plain words and at most eight lines."""
