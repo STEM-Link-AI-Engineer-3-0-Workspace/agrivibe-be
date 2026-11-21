@@ -1,4 +1,10 @@
 from collections import Counter
+import logging
+
+from langchain.agents.middleware import AgentMiddleware
+from langchain_core.messages import SystemMessage
+from langchain_core.prompts import ChatPromptTemplate
+from langfuse.api import NotFoundError
 
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.runnables import RunnableConfig
@@ -120,3 +126,50 @@ def run_config(
         if tags:
             config["metadata"]["langfuse_tags"] = tags
     return config
+
+
+class PromptTracing(AgentMiddleware):
+    """Render a versioned source prompt beside each model call so Langfuse links it.
+
+    The agent still uses its original system message, including dynamic farmer memory.
+    A concrete SystemMessage keeps JSON braces in source prompts literal.
+    """
+
+    def __init__(self, prompt):
+        self.template = ChatPromptTemplate(
+            [SystemMessage(content=prompt.prompt)], metadata={"langfuse_prompt": prompt}
+        )
+
+    def wrap_model_call(self, request, handler):
+        self.template.invoke({})
+        return handler(request)
+
+    async def awrap_model_call(self, request, handler):
+        await self.template.ainvoke({})
+        return await handler(request)
+
+
+def prompt_tracing(settings: Settings, name: str, source: str) -> list[AgentMiddleware]:
+    """Version the source-controlled prompt only when its content changes.
+
+    This records what this checkout uses; editing a deployment label does not change
+    application behaviour. Tracing remains optional if Langfuse is unavailable.
+    """
+    client = create_langfuse(settings)
+    if client is None:
+        return []
+    try:
+        try:
+            prompt = client.get_prompt(name, label="latest", type="text")
+        except NotFoundError:
+            prompt = None
+        if prompt is None or prompt.prompt != source:
+            prompt = client.create_prompt(
+                name=name, prompt=source, type="text",
+                labels=[settings.langfuse_environment],
+                commit_message="Synced from AgriVibe source at startup",
+            )
+        return [PromptTracing(prompt)]
+    except Exception:
+        logging.getLogger(__name__).warning("Could not register Langfuse prompt %s", name, exc_info=True)
+        return []

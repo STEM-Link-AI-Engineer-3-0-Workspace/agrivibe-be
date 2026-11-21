@@ -15,6 +15,7 @@ def build_fieldoracle_agent(
     k: int = 4,
     checkpointer: Checkpointer = None,
     reranker: Reranker | None = None,
+    middleware=(),
 ):
     """Builds the RAG agent: a search tool plus a cited, structured answer.
 
@@ -35,6 +36,7 @@ def build_fieldoracle_agent(
         tools=[make_search_tool(vector_store, k, reranker)],
         system_prompt=SYSTEM_PROMPT,
         response_format=CitedAnswer,
+        middleware=list(middleware),
         checkpointer=checkpointer,
         name="FieldOracle",
     )
