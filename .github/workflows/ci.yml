@@ -1,16 +1,96 @@
 name: CI
 
+# Gate 2 (Lesson 3). Two jobs:
+#   checks     deterministic: lint, secret scan, every test with the fake model. Free, every PR.
+#   eval-gate  real-model evals on the smoke set, judged, then evals/gate.py decides: floor + no-regression
+#              margin vs evals/baseline.json + safety items. Costs a few cents, so it runs only when the agent
+#              (src/) or the evals change, and only after checks pass.
+# The runner can't reach a laptop's Langfuse, so it scores inside the job (--no-langfuse) and publishes the
+# table to the job summary and the full JSON as an artifact.
 on:
   pull_request:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  check:
+  checks:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10.2.0
+      - uses: astral-sh/setup-uv@v10.3.3
       - run: uv sync --locked
-      - run: uvx ruff check src tests
-      - run: uv run pytest
+      - name: Lint
+        run: uvx ruff check src tests evals scripts
+      - name: No API keys in the repository
+        run: |
+          if git grep -nE '(sk-(proj-)?[A-Za-z0-9_-]{20,}|pcsk_[A-Za-z0-9_]{20,})' -- . ':!uv.lock'; then
+            echo "::error::Something that looks like an API key is committed."; exit 1
+          fi
+      - name: Tests (fake model, no keys)
+        run: uv run pytest -q
+
+  eval-gate:
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Did the agent or the evals change?
+        id: changed
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          base="$BASE"
+          if git diff --name-only "$base" HEAD | grep -qE '^(src|evals)/'; then
+            echo "agent=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "agent=false" >> "$GITHUB_OUTPUT"
+            echo "No change under src/ or evals/: eval gate skipped, no tokens spent." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - if: steps.changed.outputs.agent == 'true'
+        uses: astral-sh/setup-uv@v10.3.3
+      - if: steps.changed.outputs.agent == 'true'
+        run: uv sync --locked
+      - name: Check the OpenAI key secret (fail fast, never print it)
+        if: steps.changed.outputs.agent == 'true'
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          # A bad secret otherwise shows up as five confusing "Connection error"s: the SDK reports a key with a
+          # newline or a space (illegal in an HTTP header) as a connection problem.
+          if [ -z "$OPENAI_API_KEY" ]; then
+            echo "::error::The OPENAI_API_KEY secret is empty or not set."; exit 1
+          fi
+          case "$OPENAI_API_KEY" in
+            *[[:space:]]*|*\"*|*\'*)
+              echo "::error::The OPENAI_API_KEY secret contains whitespace, a line break or quotes. Paste only the key."; exit 1 ;;
+          esac
+          case "$OPENAI_API_KEY" in
+            sk-*) echo "OPENAI_API_KEY looks well-formed (${#OPENAI_API_KEY} characters)." ;;
+            *) echo "::error::The OPENAI_API_KEY secret doesn't start with sk- (was OPENAI_API_KEY= pasted too?)."; exit 1 ;;
+          esac
+      - name: Real-model evals (smoke set, 2 runs)
+        if: steps.changed.outputs.agent == 'true'
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          PINECONE_API_KEY: unused # the smoke set has no knowledge items
+        run: uv run python -m evals.run_evals --set smoke --runs 2 --no-langfuse --no-pinecone
+      - name: Gate (floor + no-regression margin + safety items)
+        if: steps.changed.outputs.agent == 'true'
+        run: uv run python -m evals.gate
+      - name: Keep the full results
+        if: always() && steps.changed.outputs.agent == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: eval-results
+          path: evals/results/latest.json
+          if-no-files-found: ignore

@@ -41,3 +41,42 @@ def test_one_chat_is_one_trace_with_the_farmer_and_the_thread(client, vector_sto
     for _, metadata in tracer.runs:
         assert metadata["langfuse_session_id"] == body["thread_id"]
         assert metadata["langfuse_user_id"] == "farmer-007"
+
+
+def test_prompt_link_is_rendered_before_each_model_with_the_same_parent():
+    """Exercise a real agent graph: Langfuse links a template's parent to its next generation."""
+    import asyncio
+    from types import SimpleNamespace
+
+    from langchain.agents import create_agent
+    from langchain_core.messages import AIMessage
+
+    from agrivibe.core.tracing import PromptTracing
+    from tests.fakes import ScriptedChatModel
+
+    prompt = SimpleNamespace(prompt='Source prompt with literal JSON: {"field": "id"}')
+
+    class Links(BaseCallbackHandler):
+        def __init__(self):
+            self.prompt_parents = set()
+            self.linked = 0
+
+        def on_chain_start(self, serialized, inputs, *, parent_run_id=None, metadata=None, **kwargs):
+            if (metadata or {}).get("langfuse_prompt") is prompt:
+                self.prompt_parents.add(parent_run_id)
+
+        def on_chat_model_start(self, serialized, messages, *, parent_run_id=None, **kwargs):
+            assert parent_run_id in self.prompt_parents
+            self.linked += 1
+
+    for asynchronous in (False, True):
+        model = ScriptedChatModel(replies=[AIMessage(content="hello")])
+        agent = create_agent(model, system_prompt="Source plus dynamic farmer memory", middleware=[PromptTracing(prompt)])
+        tracer = Links()
+        args = ({"messages": [{"role": "user", "content": "hello"}]}, {"callbacks": [tracer]})
+        if asynchronous:
+            asyncio.run(agent.ainvoke(*args))
+        else:
+            agent.invoke(*args)
+        assert tracer.linked == 1
+        assert model.received[0][0].content == "Source plus dynamic farmer memory"

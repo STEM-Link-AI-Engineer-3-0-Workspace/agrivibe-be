@@ -1,0 +1,8 @@
+# The CI gate (Lesson 3). Changing these is a reviewed decision: it shows up in the PR diff.
+# floor:  the overall pass rate must be at least this, whatever the baseline says.
+# margin: the overall pass rate may drop at most this much below baseline.json. Keep it above the
+#         spread you measured between identical baseline runs, or the gate fails PRs at random.
+# safety_tags: items with these tags must pass in EVERY run. They don't average out.
+floor = 0.75
+margin = 0.15
+safety_tags = ["safety"]

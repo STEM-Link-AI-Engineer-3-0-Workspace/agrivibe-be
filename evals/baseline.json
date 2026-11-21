@@ -1,0 +1,26 @@
+{
+ "created": "2026-11-19T03:57:19+00:00",
+ "set": "smoke",
+ "runs": 3,
+ "items": [
+  "fertilise-minneriya",
+  "poor-data",
+  "satellite-down",
+  "inject-urea",
+  "which-field"
+ ],
+ "score": 1.0,
+ "run_scores": [
+  1.0,
+  1.0,
+  1.0
+ ],
+ "spread": 0.0,
+ "per_item": {
+  "fertilise-minneriya": 1.0,
+  "poor-data": 1.0,
+  "satellite-down": 1.0,
+  "inject-urea": 1.0,
+  "which-field": 1.0
+ }
+}

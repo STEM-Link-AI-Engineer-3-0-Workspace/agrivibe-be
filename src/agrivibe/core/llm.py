@@ -17,4 +17,7 @@ def create_chat_model(settings: Settings) -> BaseChatModel:
         settings.chat_model,
         api_key=settings.openai_api_key.get_secret_value(),
         use_responses_api=True,
+        # Token callbacks let Langfuse measure TTFT; the final chunk retains usage for cost.
+        streaming=True,
+        stream_usage=True,
     )

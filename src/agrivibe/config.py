@@ -43,3 +43,20 @@ class Settings(BaseSettings):
     langfuse_public_key: str | None = None
     langfuse_secret_key: SecretStr | None = None
     langfuse_base_url: str = "https://cloud.langfuse.com"
+    # Separates traces in Langfuse: "development" on a laptop, "production" in the deployed stack.
+    langfuse_environment: str = "development"
+
+    # Lesson 3: guardrails (core/guardrails.py). GUARDRAILS=false switches them all off, for the before/after demo.
+    guardrails: bool = True
+    # Input moderation calls OpenAI's Moderations endpoint. MODERATION=false skips it, for example when the
+    # API key is not allowed to call it (HTTP 403), rather than recording "moderation_unavailable" on every turn.
+    moderation: bool = True
+    moderation_model: str = "omni-moderation-latest"
+    # Output check: a fertiliser dose above this, per application, is withheld. A demo value, not agronomy advice.
+    max_dose_kg_per_ha: int = 150
+    # Limits per chat turn, so a confused orchestrator cannot loop and burn tokens.
+    max_model_calls: int = 12
+    max_tool_calls: int = 10
+
+    # Lesson 3: the LLM-as-judge used by evals/ and post-deployment evaluation. Pin it; change it on purpose.
+    judge_model: str = "openai:gpt-5.6-luna"
